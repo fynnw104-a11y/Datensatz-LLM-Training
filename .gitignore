@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.tmp/
+.tessdata/
+
+data/processed/*.jsonl
+data/processed/*.json
+data/processed/*.log

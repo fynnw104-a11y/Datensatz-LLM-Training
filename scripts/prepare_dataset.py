@@ -1,0 +1,2291 @@
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import os
+import re
+from dataclasses import dataclass, field
+from difflib import SequenceMatcher
+from pathlib import Path
+from typing import Any, Iterable
+import unicodedata
+
+ROOT = Path(__file__).resolve().parents[1]
+RAW_PDFS_DIR = ROOT / "data" / "raw" / "pdfs"
+RAW_NODES_DIR = ROOT / "data" / "raw" / "nodes"
+PROCESSED_DIR = ROOT / "data" / "processed"
+MULTIMODAL_DIR = PROCESSED_DIR / "multimodal"
+MULTIMODAL_IMAGES_DIR = MULTIMODAL_DIR / "images"
+MULTIMODAL_ANNOTATIONS_DIR = MULTIMODAL_DIR / "annotations"
+PROJECT_TESSDATA_DIR = ROOT / ".tessdata"
+
+TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".yaml", ".yml"}
+STRUCTURED_SUFFIXES = {".json", ".jsonl", ".csv"}
+PDF_SUFFIX = ".pdf"
+
+PDF_RENDER_SCALE = float(os.getenv("PDF_RENDER_SCALE", "2.0"))
+OCR_ENABLED = os.getenv("ENABLE_OCR", "1").strip().lower() not in {"0", "false", "no"}
+OCR_LANGUAGE = os.getenv("TESSERACT_LANG", "eng")
+ASSET_MIN_AREA_RATIO = float(os.getenv("ASSET_MIN_AREA_RATIO", "0.02"))
+ASSET_MIN_WIDTH_RATIO = float(os.getenv("ASSET_MIN_WIDTH_RATIO", "0.2"))
+ASSET_MIN_HEIGHT_RATIO = float(os.getenv("ASSET_MIN_HEIGHT_RATIO", "0.12"))
+ASSET_CONTEXT_MARGIN = float(os.getenv("ASSET_CONTEXT_MARGIN", "42"))
+ASSET_RENDER_PADDING = float(os.getenv("ASSET_RENDER_PADDING", "10"))
+ASSET_MAX_CONTEXT_BLOCKS = int(os.getenv("ASSET_MAX_CONTEXT_BLOCKS", "6"))
+DRAWING_CLUSTER_GAP = float(os.getenv("DRAWING_CLUSTER_GAP", "14"))
+TEXT_GAP_MIN_RATIO = float(os.getenv("TEXT_GAP_MIN_RATIO", "0.16"))
+SUMMARY_CHAR_LIMIT = 360
+
+BBox = tuple[float, float, float, float]
+
+WINDOWS_TESSERACT_CANDIDATES = [
+    Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+]
+
+FOREX_CODES = {
+    "USD",
+    "EUR",
+    "GBP",
+    "JPY",
+    "AUD",
+    "NZD",
+    "CAD",
+    "CHF",
+}
+KNOWN_GLOBAL_SYMBOLS = {
+    "BTCUSD",
+    "BTCUSDT",
+    "ETHUSD",
+    "ETHUSDT",
+    "XAUUSD",
+    "XAGUSD",
+    "US30",
+    "NAS100",
+    "SPX500",
+    "GER40",
+    "UK100",
+    "WTI",
+    "BRENT",
+}
+
+KNOWN_VENUES = {
+    "BINANCE",
+    "BYBIT",
+    "BITGET",
+    "COINBASE",
+    "KRAKEN",
+    "OKX",
+}
+
+BASE_ASSET_ALIASES = {
+    "bitcoin": "BTC",
+    "bitokn": "BTC",
+    "btc": "BTC",
+    "ethereum": "ETH",
+    "ether": "ETH",
+    "eth": "ETH",
+    "gold": "XAU",
+    "silver": "XAG",
+    "nasdaq": "NAS100",
+    "dow": "US30",
+    "sp500": "SPX500",
+}
+
+QUOTE_ASSET_ALIASES = {
+    "tether": "USDT",
+    "tethers": "USDT",
+    "tetherus": "USDT",
+    "tetherusd": "USDT",
+    "usdt": "USDT",
+    "usd": "USD",
+    "dollar": "USD",
+    "dollars": "USD",
+}
+
+SYMBOL_DISPLAY_NAMES = {
+    "BTCUSDT": "Bitcoin / TetherUS",
+    "BTCUSD": "Bitcoin / US Dollar",
+    "ETHUSDT": "Ethereum / TetherUS",
+    "ETHUSD": "Ethereum / US Dollar",
+    "XAUUSD": "Gold / US Dollar",
+    "XAGUSD": "Silver / US Dollar",
+}
+
+TIMEFRAME_MAP = {
+    "1m": "M1",
+    "3m": "M3",
+    "5m": "M5",
+    "15m": "M15",
+    "30m": "M30",
+    "45m": "M45",
+    "1h": "H1",
+    "2h": "H2",
+    "4h": "H4",
+    "6h": "H6",
+    "8h": "H8",
+    "12h": "H12",
+    "1d": "D1",
+    "1w": "W1",
+    "1mo": "MN1",
+}
+
+CONCEPT_KEYWORDS = {
+    "breakout": ["breakout", "range break", "compression break"],
+    "pullback": ["pullback", "retest", "retracement"],
+    "trend_following": ["trend", "trendline", "trend following"],
+    "mean_reversion": ["mean reversion", "reversion", "overextended"],
+    "market_structure": ["higher high", "lower low", "bos", "choch", "market structure"],
+    "support_resistance": ["support", "resistance", "s/r", "level"],
+    "risk_management": ["risk", "risk management", "position size", "rr", "r:r"],
+    "stop_loss": ["stop loss", "sl", "stop"],
+    "take_profit": ["take profit", "tp", "target"],
+    "liquidity": ["liquidity", "sweep", "stop hunt"],
+    "order_flow": ["order flow", "footprint", "delta", "bid ask"],
+    "volume": ["volume", "vpvr", "volume profile"],
+    "divergence": ["divergence", "hidden divergence"],
+    "reversal": ["reversal", "fade", "turnaround"],
+    "range": ["range", "sideways", "consolidation"],
+    "volatility": ["volatility", "atr", "expansion", "compression"],
+    "momentum": ["momentum", "impulse", "acceleration"],
+    "psychology": ["discipline", "psychology", "emotion", "mindset"],
+}
+
+DOMAIN_KEYWORDS = {
+    "technical_analysis": [
+        "candlestick",
+        "support",
+        "resistance",
+        "breakout",
+        "trendline",
+        "chart",
+        "pattern",
+    ],
+    "risk_management": ["risk", "drawdown", "stop loss", "position size", "exposure"],
+    "performance_review": ["pnl", "profit factor", "win rate", "equity curve", "drawdown", "sharpe"],
+    "execution": ["entry", "exit", "limit order", "market order", "execution", "fill"],
+    "macro_context": ["cpi", "fomc", "rates", "macro", "news", "fed", "ecb"],
+    "trading_psychology": ["discipline", "emotion", "mindset", "patience", "fear", "greed"],
+}
+
+FIELD_ALIASES = {
+    "symbol": ["symbol", "ticker", "asset", "instrument", "market"],
+    "timeframe": ["timeframe", "tf", "interval"],
+    "direction": ["direction", "side", "bias", "action", "signal"],
+    "entry": ["entry", "entry_price", "buy_price", "sell_price", "open_price"],
+    "stop_loss": ["stop_loss", "sl", "stop"],
+    "take_profit": ["take_profit", "tp", "target", "target_price"],
+    "thesis": ["thesis", "reason", "rationale", "setup", "setup_reason"],
+    "notes": ["notes", "comment", "comments", "summary", "description"],
+    "outcome": ["outcome", "result", "status"],
+    "pnl": ["pnl", "profit", "profit_loss", "return", "return_pct", "roi"],
+    "start_time": ["start_time", "open_time", "entry_time", "timestamp", "date"],
+    "end_time": ["end_time", "close_time", "exit_time"],
+}
+
+
+@dataclass
+class Document:
+    doc_id: str
+    source_type: str
+    relative_path: str
+    title: str
+    text: str
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    structured_payload: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class LayoutTextBlock:
+    bbox: BBox
+    text: str
+    font_size: float = 0.0
+
+
+@dataclass(frozen=True)
+class VisualAssetCandidate:
+    bbox: BBox
+    source: str
+
+
+def safe_read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def stable_id(*parts: str) -> str:
+    digest = hashlib.sha1("::".join(parts).encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def normalize_whitespace(text: str) -> str:
+    text = text.replace("\x00", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def flatten_value(value: Any, prefix: str = "") -> list[str]:
+    lines: list[str] = []
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            next_prefix = f"{prefix}.{key}" if prefix else str(key)
+            lines.extend(flatten_value(inner, next_prefix))
+        return lines
+    if isinstance(value, list):
+        for index, inner in enumerate(value):
+            next_prefix = f"{prefix}[{index}]"
+            lines.extend(flatten_value(inner, next_prefix))
+        return lines
+    scalar = "" if value is None else str(value)
+    if prefix:
+        lines.append(f"{prefix}: {scalar}")
+    else:
+        lines.append(scalar)
+    return lines
+
+
+def extract_tags(path: Path) -> list[str]:
+    tags: list[str] = []
+    for part in path.parts:
+        cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", part.strip().lower()).strip("-")
+        if cleaned:
+            tags.append(cleaned)
+    return tags[-6:]
+
+
+def slugify(value: str) -> str:
+    normalized = value.replace("\\", "/").strip("/")
+    normalized = re.sub(r"[^a-zA-Z0-9/_-]+", "-", normalized)
+    normalized = re.sub(r"-{2,}", "-", normalized)
+    return normalized.strip("-")
+
+
+def root_relative(path: Path) -> str:
+    return path.relative_to(ROOT).as_posix()
+
+
+def ascii_fold(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    return normalized.encode("ascii", "ignore").decode("ascii")
+
+
+def normalize_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", ascii_fold(value).lower())
+
+
+def fuzzy_lookup(token: str, candidates: dict[str, str], minimum_score: float = 0.72) -> str | None:
+    normalized_token = normalize_token(token)
+    if not normalized_token:
+        return None
+    if normalized_token in candidates:
+        return candidates[normalized_token]
+
+    best_match: str | None = None
+    best_score = 0.0
+    for candidate_key, candidate_value in candidates.items():
+        if candidate_key in normalized_token or normalized_token in candidate_key:
+            score = 0.92
+        else:
+            score = SequenceMatcher(a=normalized_token, b=candidate_key).ratio()
+        if score > best_score:
+            best_score = score
+            best_match = candidate_value
+    if best_score >= minimum_score:
+        return best_match
+    return None
+
+
+def try_extract_pdf(path: Path) -> str:
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return ""
+
+    try:
+        reader = PdfReader(str(path))
+        pages: list[str] = []
+        for page_index, page in enumerate(reader.pages):
+            page_text = page.extract_text() or ""
+            page_text = normalize_whitespace(page_text)
+            if page_text:
+                pages.append(f"[page {page_index + 1}]\n{page_text}")
+        return "\n\n".join(pages)
+    except Exception as exc:  # pragma: no cover - defensive for unstable PDFs
+        return f"[pdf_extraction_error] {exc}"
+
+
+def parse_text_file(path: Path, source_root: Path, source_type: str) -> list[Document]:
+    text = normalize_whitespace(safe_read_text(path))
+    relative = path.relative_to(source_root).as_posix()
+    return [
+        Document(
+            doc_id=stable_id(source_type, relative),
+            source_type=source_type,
+            relative_path=relative,
+            title=path.stem,
+            text=text,
+            tags=extract_tags(path.relative_to(source_root)),
+        )
+    ]
+
+
+def parse_pdf_file(path: Path) -> list[Document]:
+    text = normalize_whitespace(try_extract_pdf(path))
+    relative = path.relative_to(RAW_PDFS_DIR).as_posix()
+    return [
+        Document(
+            doc_id=stable_id("pdf", relative),
+            source_type="pdf",
+            relative_path=relative,
+            title=path.stem,
+            text=text,
+            tags=extract_tags(path.relative_to(RAW_PDFS_DIR)),
+        )
+    ]
+
+
+def parse_json_file(path: Path, source_root: Path) -> list[Document]:
+    relative = path.relative_to(source_root).as_posix()
+    payload = json.loads(safe_read_text(path))
+    documents: list[Document] = []
+
+    if isinstance(payload, list):
+        for index, item in enumerate(payload):
+            item_text = normalize_whitespace("\n".join(flatten_value(item)))
+            doc = Document(
+                doc_id=stable_id("json", relative, str(index)),
+                source_type="node",
+                relative_path=relative,
+                title=f"{path.stem}_{index}",
+                text=item_text,
+                tags=extract_tags(path.relative_to(source_root)),
+                structured_payload=item if isinstance(item, dict) else None,
+                metadata={"record_index": index},
+            )
+            documents.append(doc)
+        return documents
+
+    item_text = normalize_whitespace("\n".join(flatten_value(payload)))
+    documents.append(
+        Document(
+            doc_id=stable_id("json", relative),
+            source_type="node",
+            relative_path=relative,
+            title=path.stem,
+            text=item_text,
+            tags=extract_tags(path.relative_to(source_root)),
+            structured_payload=payload if isinstance(payload, dict) else None,
+        )
+    )
+    return documents
+
+
+def parse_jsonl_file(path: Path, source_root: Path) -> list[Document]:
+    relative = path.relative_to(source_root).as_posix()
+    documents: list[Document] = []
+    for index, raw_line in enumerate(safe_read_text(path).splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            payload = {"raw_line": line}
+        text = normalize_whitespace("\n".join(flatten_value(payload)))
+        documents.append(
+            Document(
+                doc_id=stable_id("jsonl", relative, str(index)),
+                source_type="node",
+                relative_path=relative,
+                title=f"{path.stem}_{index}",
+                text=text,
+                tags=extract_tags(path.relative_to(source_root)),
+                structured_payload=payload if isinstance(payload, dict) else None,
+                metadata={"record_index": index},
+            )
+        )
+    return documents
+
+
+def parse_csv_file(path: Path, source_root: Path) -> list[Document]:
+    relative = path.relative_to(source_root).as_posix()
+    documents: list[Document] = []
+    with path.open("r", encoding="utf-8", errors="ignore", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for index, row in enumerate(reader):
+            cleaned_row = {key: value for key, value in row.items() if key is not None}
+            text = normalize_whitespace("\n".join(flatten_value(cleaned_row)))
+            documents.append(
+                Document(
+                    doc_id=stable_id("csv", relative, str(index)),
+                    source_type="node",
+                    relative_path=relative,
+                    title=f"{path.stem}_{index}",
+                    text=text,
+                    tags=extract_tags(path.relative_to(source_root)),
+                    structured_payload=cleaned_row,
+                    metadata={"record_index": index},
+                )
+            )
+    return documents
+
+
+def parse_path(path: Path, source_root: Path, source_type: str) -> list[Document]:
+    suffix = path.suffix.lower()
+    if suffix == PDF_SUFFIX:
+        return parse_pdf_file(path)
+    if suffix in TEXT_SUFFIXES:
+        return parse_text_file(path, source_root, source_type)
+    if suffix == ".json":
+        return parse_json_file(path, source_root)
+    if suffix == ".jsonl":
+        return parse_jsonl_file(path, source_root)
+    if suffix == ".csv":
+        return parse_csv_file(path, source_root)
+    return []
+
+
+def collect_documents() -> list[Document]:
+    documents: list[Document] = []
+    for path in sorted(RAW_PDFS_DIR.rglob("*")):
+        if path.is_file():
+            documents.extend(parse_path(path, RAW_PDFS_DIR, "pdf"))
+    for path in sorted(RAW_NODES_DIR.rglob("*")):
+        if path.is_file():
+            documents.extend(parse_path(path, RAW_NODES_DIR, "node"))
+    return [document for document in documents if document.text]
+
+
+def chunk_text(text: str, max_words: int = 320, overlap_words: int = 40) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    if len(words) <= max_words:
+        return [" ".join(words)]
+
+    chunks: list[str] = []
+    start = 0
+    step = max_words - overlap_words
+    while start < len(words):
+        chunk = words[start : start + max_words]
+        if not chunk:
+            break
+        chunks.append(" ".join(chunk))
+        start += step
+    return chunks
+
+
+def normalize_record(payload: dict[str, Any]) -> dict[str, Any]:
+    lowered = {str(key).lower(): value for key, value in payload.items()}
+    normalized: dict[str, Any] = {}
+    for target_key, aliases in FIELD_ALIASES.items():
+        for alias in aliases:
+            if alias in lowered and lowered[alias] not in (None, "", []):
+                normalized[target_key] = lowered[alias]
+                break
+
+    for passthrough_key in ("strategy", "session", "exchange", "broker"):
+        if passthrough_key in lowered and lowered[passthrough_key] not in (None, "", []):
+            normalized[passthrough_key] = lowered[passthrough_key]
+
+    return normalized
+
+
+def estimate_trade_confidence(record: dict[str, Any]) -> float:
+    score = 0.0
+    if record.get("symbol"):
+        score += 0.2
+    if record.get("timeframe"):
+        score += 0.15
+    if record.get("direction"):
+        score += 0.2
+    if record.get("entry"):
+        score += 0.15
+    if record.get("thesis") or record.get("notes"):
+        score += 0.15
+    if record.get("outcome") or record.get("pnl"):
+        score += 0.15
+    return round(min(score, 1.0), 2)
+
+
+def build_decision_messages(record: dict[str, Any]) -> list[dict[str, str]] | None:
+    if not record.get("symbol"):
+        return None
+    if not (record.get("direction") or record.get("entry")):
+        return None
+
+    prompt_record = {
+        key: value
+        for key, value in record.items()
+        if key not in {"outcome", "pnl", "end_time"}
+    }
+    response_record = {
+        "action": record.get("direction"),
+        "entry": record.get("entry"),
+        "stop_loss": record.get("stop_loss"),
+        "take_profit": record.get("take_profit"),
+        "thesis": record.get("thesis") or record.get("notes"),
+    }
+    response_record = {key: value for key, value in response_record.items() if value not in (None, "")}
+    if not response_record:
+        return None
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a trading backtesting assistant. Use only the provided context "
+                "and respond with a compact decision summary."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Review this historical trade setup and state the intended decision.\n\n"
+                f"{json.dumps(prompt_record, ensure_ascii=False, indent=2)}"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": json.dumps(response_record, ensure_ascii=False, indent=2),
+        },
+    ]
+
+
+def build_documents_jsonl(documents: Iterable[Document]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for document in documents:
+        rows.append(
+            {
+                "id": document.doc_id,
+                "source_type": document.source_type,
+                "source_path": document.relative_path,
+                "title": document.title,
+                "tags": document.tags,
+                "metadata": document.metadata,
+                "text": document.text,
+            }
+        )
+    return rows
+
+
+def build_knowledge_jsonl(documents: Iterable[Document]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for document in documents:
+        for chunk_index, chunk in enumerate(chunk_text(document.text)):
+            rows.append(
+                {
+                    "id": f"{document.doc_id}_chunk_{chunk_index}",
+                    "source_document_id": document.doc_id,
+                    "source_type": document.source_type,
+                    "source_path": document.relative_path,
+                    "title": document.title,
+                    "chunk_index": chunk_index,
+                    "tags": document.tags,
+                    "text": chunk,
+                }
+            )
+    return rows
+
+
+def build_trade_candidates(documents: Iterable[Document]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for document in documents:
+        if not document.structured_payload:
+            continue
+        normalized_record = normalize_record(document.structured_payload)
+        confidence = estimate_trade_confidence(normalized_record)
+        if confidence < 0.35:
+            continue
+        messages = build_decision_messages(normalized_record)
+        rows.append(
+            {
+                "id": document.doc_id,
+                "source_path": document.relative_path,
+                "source_title": document.title,
+                "confidence": confidence,
+                "review_required": True,
+                "normalized_record": normalized_record,
+                "candidate_training_example": {
+                    "id": document.doc_id,
+                    "messages": messages,
+                    "metadata": {
+                        "task_type": "decision",
+                        "source_path": document.relative_path,
+                        "symbol": normalized_record.get("symbol"),
+                        "timeframe": normalized_record.get("timeframe"),
+                        "reviewed": False,
+                    },
+                }
+                if messages
+                else None,
+            }
+        )
+    return rows
+
+
+def import_pymupdf() -> Any | None:
+    try:
+        import fitz
+    except ImportError:
+        return None
+    return fitz
+
+
+def import_ocr_modules() -> tuple[Any | None, Any | None]:
+    try:
+        from PIL import Image
+        import pytesseract
+    except ImportError:
+        return None, None
+    return Image, pytesseract
+
+
+def resolve_tesseract_cmd() -> str | None:
+    env_value = os.getenv("TESSERACT_CMD", "").strip()
+    if env_value:
+        return env_value
+
+    for candidate in WINDOWS_TESSERACT_CANDIDATES:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def resolve_tessdata_prefix() -> str | None:
+    env_value = os.getenv("TESSDATA_PREFIX", "").strip()
+    if env_value:
+        return env_value
+
+    if PROJECT_TESSDATA_DIR.exists():
+        return str(PROJECT_TESSDATA_DIR)
+
+    resolved_cmd = resolve_tesseract_cmd()
+    if resolved_cmd:
+        install_tessdata = Path(resolved_cmd).resolve().parent / "tessdata"
+        if install_tessdata.exists():
+            return str(install_tessdata)
+    return None
+
+
+def configure_tesseract_runtime(pytesseract_module: Any | None = None) -> dict[str, Any]:
+    tesseract_cmd = resolve_tesseract_cmd()
+    tessdata_prefix = resolve_tessdata_prefix()
+
+    if pytesseract_module is not None and tesseract_cmd:
+        pytesseract_module.pytesseract.tesseract_cmd = tesseract_cmd
+
+    if tessdata_prefix:
+        os.environ["TESSDATA_PREFIX"] = tessdata_prefix
+
+    return {
+        "command": tesseract_cmd,
+        "tessdata_prefix": tessdata_prefix,
+    }
+
+
+def detect_ocr_runtime() -> dict[str, Any]:
+    if not OCR_ENABLED:
+        return {"enabled": False, "available": False, "status": "disabled"}
+
+    _image_module, pytesseract_module = import_ocr_modules()
+    if pytesseract_module is None:
+        return {
+            "enabled": True,
+            "available": False,
+            "status": "missing_python_packages",
+        }
+
+    runtime_config = configure_tesseract_runtime(pytesseract_module)
+
+    try:
+        version = str(pytesseract_module.get_tesseract_version())
+    except Exception as exc:  # pragma: no cover - depends on local OCR setup
+        return {
+            "enabled": True,
+            "available": False,
+            "status": "missing_tesseract_binary",
+            "error": str(exc),
+            "command": runtime_config["command"],
+            "tessdata_prefix": runtime_config["tessdata_prefix"],
+        }
+
+    return {
+        "enabled": True,
+        "available": True,
+        "status": "ok",
+        "version": version,
+        "language": OCR_LANGUAGE,
+        "command_override": runtime_config["command"],
+        "tessdata_prefix": runtime_config["tessdata_prefix"],
+    }
+
+
+def run_ocr(image_path: Path) -> tuple[str, dict[str, Any]]:
+    if not OCR_ENABLED:
+        return "", {"enabled": False, "available": False, "status": "disabled"}
+
+    image_module, pytesseract_module = import_ocr_modules()
+    if image_module is None or pytesseract_module is None:
+        return "", {
+            "enabled": True,
+            "available": False,
+            "status": "missing_python_packages",
+        }
+
+    runtime_config = configure_tesseract_runtime(pytesseract_module)
+
+    try:
+        from PIL import ImageOps
+
+        with image_module.open(image_path) as image:
+            primary_text = pytesseract_module.image_to_string(image, lang=OCR_LANGUAGE, config="--psm 6")
+
+            header_height = max(int(image.height * 0.12), 72)
+            header_crop = image.crop((0, 0, image.width, min(image.height, header_height)))
+            header_image = ImageOps.autocontrast(header_crop.convert("L"))
+            header_image = header_image.resize(
+                (max(header_image.width * 2, header_image.width), max(header_image.height * 2, header_image.height))
+            )
+            header_text = pytesseract_module.image_to_string(header_image, lang=OCR_LANGUAGE, config="--psm 6")
+
+        merged_text = "\n".join(unique_lines([primary_text, header_text]))
+        return normalize_whitespace(merged_text), {
+            "enabled": True,
+            "available": True,
+            "status": "ok",
+            "language": OCR_LANGUAGE,
+            "command": runtime_config["command"],
+            "tessdata_prefix": runtime_config["tessdata_prefix"],
+        }
+    except Exception as exc:  # pragma: no cover - depends on local OCR setup
+        return "", {
+            "enabled": True,
+            "available": False,
+            "status": "runtime_error",
+            "error": str(exc),
+            "command": runtime_config["command"],
+            "tessdata_prefix": runtime_config["tessdata_prefix"],
+        }
+
+
+def unique_lines(lines: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for line in lines:
+        cleaned = normalize_whitespace(line)
+        if not cleaned:
+            continue
+        if cleaned.lower() in seen:
+            continue
+        seen.add(cleaned.lower())
+        result.append(cleaned)
+    return result
+
+
+def merge_extracted_text(embedded_text: str, ocr_text: str) -> tuple[str, list[str]]:
+    methods: list[str] = []
+    if embedded_text:
+        methods.append("embedded_text")
+    if ocr_text:
+        methods.append("ocr")
+
+    if not embedded_text and not ocr_text:
+        return "", methods
+    if embedded_text and not ocr_text:
+        return embedded_text, methods
+    if ocr_text and not embedded_text:
+        return ocr_text, methods
+
+    embedded_lines = embedded_text.splitlines()
+    ocr_lines = ocr_text.splitlines()
+    merged = unique_lines([*embedded_lines, *ocr_lines])
+    return "\n".join(merged), methods
+
+
+def text_density_bucket(text: str) -> str:
+    word_count = len(text.split())
+    if word_count < 25:
+        return "low"
+    if word_count < 120:
+        return "medium"
+    return "high"
+
+
+def split_ocr_tokens(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z][A-Za-z0-9]+", ascii_fold(text))
+
+
+def extract_pair_symbols(text: str) -> list[str]:
+    symbols: set[str] = set()
+    candidate_lines = unique_lines([text, *text.splitlines()])
+    for line in candidate_lines:
+        if "/" not in line:
+            continue
+        parts = re.split(r"\s*/\s*", line, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        left_tokens = split_ocr_tokens(parts[0])
+        right_tokens = split_ocr_tokens(parts[1])
+        base_symbol = None
+        for token in left_tokens:
+            base_symbol = fuzzy_lookup(token, BASE_ASSET_ALIASES, minimum_score=0.66)
+            if base_symbol:
+                break
+
+        quote_symbol = None
+        for token in right_tokens[:5]:
+            quote_symbol = fuzzy_lookup(token, QUOTE_ASSET_ALIASES, minimum_score=0.66)
+            if quote_symbol:
+                break
+
+        if base_symbol and quote_symbol:
+            symbols.add(base_symbol + quote_symbol)
+
+    if symbols:
+        return sorted(symbols)
+
+    tokens = split_ocr_tokens(text)
+    for index, token in enumerate(tokens):
+        base_symbol = fuzzy_lookup(token, BASE_ASSET_ALIASES, minimum_score=0.68)
+        if not base_symbol:
+            continue
+        for following_token in tokens[index + 1 : index + 5]:
+            quote_symbol = fuzzy_lookup(following_token, QUOTE_ASSET_ALIASES, minimum_score=0.68)
+            if quote_symbol:
+                symbols.add(base_symbol + quote_symbol)
+                break
+    return sorted(symbols)
+
+
+def extract_symbols(text: str) -> list[str]:
+    if not text:
+        return []
+
+    symbols: set[str] = set()
+    compact_text = text.upper()
+    symbols.update(extract_pair_symbols(text))
+
+    forex_matches = re.findall(r"\b([A-Z]{6})\b", compact_text)
+    for token in forex_matches:
+        if token[:3] in FOREX_CODES and token[3:] in FOREX_CODES:
+            symbols.add(token)
+
+    for token in re.findall(r"\$([A-Z]{1,5})\b", compact_text):
+        symbols.add(token)
+
+    for token in re.findall(r"\b([A-Z]{2,6}USDT|[A-Z]{2,6}USD)\b", compact_text):
+        if token in KNOWN_GLOBAL_SYMBOLS or token.endswith(("USD", "USDT")):
+            symbols.add(token)
+
+    for known_symbol in KNOWN_GLOBAL_SYMBOLS:
+        if known_symbol in compact_text:
+            symbols.add(known_symbol)
+
+    return sorted(symbols)
+
+
+def extract_venues(text: str) -> list[str]:
+    if not text:
+        return []
+
+    venues: set[str] = set()
+    compact_text = ascii_fold(text).upper()
+    for venue in KNOWN_VENUES:
+        if venue in compact_text:
+            venues.add(venue)
+
+    venue_aliases = {normalize_token(venue): venue for venue in KNOWN_VENUES}
+    for token in split_ocr_tokens(text):
+        fuzzy_venue = fuzzy_lookup(token, venue_aliases, minimum_score=0.8)
+        if fuzzy_venue:
+            venues.add(fuzzy_venue)
+    return sorted(venues)
+
+
+def extract_timeframes(text: str) -> list[str]:
+    if not text:
+        return []
+
+    normalized = text.lower()
+    found: set[str] = set()
+
+    for raw_timeframe, canonical in TIMEFRAME_MAP.items():
+        if re.search(rf"\b{re.escape(raw_timeframe)}\b", normalized):
+            found.add(canonical)
+
+    shorthand_patterns = [
+        ("M1", r"\bm1\b"),
+        ("M5", r"\bm5\b"),
+        ("M15", r"\bm15\b"),
+        ("M15", r"\b1s\b"),
+        ("M30", r"\bm30\b"),
+        ("H1", r"\bh1\b"),
+        ("H1", r"\bih\b"),
+        ("H1", r"\blh\b"),
+        ("H4", r"\bh4\b"),
+        ("D1", r"\bd1\b"),
+        ("W1", r"\bw1\b"),
+    ]
+    for canonical, pattern in shorthand_patterns:
+        if re.search(pattern, normalized):
+            found.add(canonical)
+
+    return sorted(found)
+
+
+def extract_keyword_labels(text: str, keyword_map: dict[str, list[str]]) -> list[str]:
+    lowered = text.lower()
+    labels = [
+        label
+        for label, keywords in keyword_map.items()
+        if any(keyword in lowered for keyword in keywords)
+    ]
+    return sorted(labels)
+
+
+def sentence_excerpt(text: str, max_length: int = SUMMARY_CHAR_LIMIT) -> str:
+    cleaned = normalize_whitespace(text)
+    if not cleaned:
+        return ""
+    cleaned = cleaned.replace("\n", " ")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    sentence_candidates = re.split(r"(?<=[.!?])\s+", cleaned)
+    excerpt = sentence_candidates[0].strip() if sentence_candidates else cleaned
+    if len(excerpt) > max_length:
+        excerpt = excerpt[: max_length - 3].rstrip() + "..."
+    return excerpt
+
+
+def is_date_or_time_line(line: str) -> bool:
+    lowered = line.strip().lower()
+    if not lowered:
+        return True
+    if re.fullmatch(r"\d{1,2}[.:]\d{2}", lowered):
+        return True
+    if re.fullmatch(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}", lowered):
+        return True
+    if re.fullmatch(
+        r"(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag),?\s+\d{1,2}\.\s+\w+\s+\d{4}",
+        lowered,
+    ):
+        return True
+    return False
+
+
+def meaningful_text_lines(text: str) -> list[str]:
+    return [
+        line
+        for line in polish_context_lines(text)
+        if not is_date_or_time_line(line)
+    ]
+
+
+def select_focus_line(*texts: str) -> str:
+    for text in texts:
+        for line in meaningful_text_lines(text):
+            if len(line) >= 8:
+                return line
+    for text in texts:
+        lines = polish_context_lines(text)
+        if lines:
+            return lines[0]
+    return ""
+
+
+def is_informative_ocr_line(line: str) -> bool:
+    normalized = ascii_fold(line)
+    words = re.findall(r"[A-Za-z]{3,}", normalized)
+    digits = sum(character.isdigit() for character in normalized)
+    letters = sum(character.isalpha() for character in normalized)
+    punctuation = sum(not character.isalnum() and not character.isspace() for character in normalized)
+    lowered = normalized.lower()
+    if "tradingview.com" in lowered or "freigegeben" in lowered:
+        return False
+    if letters + digits < 8:
+        return False
+    if not words:
+        return False
+    if digits > max(letters * 2, 8) and len(words) < 2:
+        return False
+    if punctuation > max(letters + digits, 1):
+        return False
+    return True
+
+
+def select_visible_label_lines(ocr_text: str) -> list[str]:
+    selected: list[str] = []
+    for line in meaningful_text_lines(ocr_text):
+        if not is_informative_ocr_line(line):
+            continue
+        selected.append(line)
+    return selected[:3]
+
+
+def infer_page_type(text: str, symbols: list[str], timeframes: list[str]) -> tuple[str, float]:
+    lowered = text.lower()
+    scores = {
+        "chart": 0,
+        "trade_journal": 0,
+        "performance_report": 0,
+        "strategy_note": 0,
+        "market_analysis": 0,
+        "educational_note": 0,
+    }
+
+    chart_keywords = ["chart", "candlestick", "support", "resistance", "trendline", "breakout"]
+    journal_keywords = ["entry", "exit", "stop loss", "take profit", "trade review", "journal"]
+    performance_keywords = ["pnl", "drawdown", "win rate", "profit factor", "sharpe", "equity"]
+    strategy_keywords = ["strategy", "rules", "playbook", "checklist", "setup criteria"]
+    analysis_keywords = ["analysis", "bias", "outlook", "scenario", "session plan"]
+    education_keywords = ["definition", "example", "lesson", "tutorial", "explained"]
+
+    for keyword in chart_keywords:
+        if keyword in lowered:
+            scores["chart"] += 2
+    for keyword in journal_keywords:
+        if keyword in lowered:
+            scores["trade_journal"] += 2
+    for keyword in performance_keywords:
+        if keyword in lowered:
+            scores["performance_report"] += 2
+    for keyword in strategy_keywords:
+        if keyword in lowered:
+            scores["strategy_note"] += 2
+    for keyword in analysis_keywords:
+        if keyword in lowered:
+            scores["market_analysis"] += 2
+    for keyword in education_keywords:
+        if keyword in lowered:
+            scores["educational_note"] += 2
+
+    if symbols or timeframes:
+        scores["chart"] += 1
+        scores["market_analysis"] += 1
+    if "page" in lowered and len(text.split()) < 20:
+        scores["chart"] += 1
+
+    best_page_type = max(scores, key=scores.get)
+    best_score = scores[best_page_type]
+    if best_score == 0:
+        return "unknown", 0.0
+
+    total_score = sum(scores.values()) or 1
+    confidence = round(best_score / total_score, 2)
+    return best_page_type, confidence
+
+
+def build_auto_summary(
+    page_type: str,
+    symbols: list[str],
+    timeframes: list[str],
+    concepts: list[str],
+    text: str,
+) -> str:
+    parts: list[str] = []
+    if page_type != "unknown":
+        parts.append(page_type.replace("_", " "))
+    if symbols:
+        parts.append("symbols: " + ", ".join(symbols[:4]))
+    if timeframes:
+        parts.append("timeframes: " + ", ".join(timeframes[:4]))
+    if concepts:
+        parts.append("concepts: " + ", ".join(concepts[:4]))
+    excerpt = sentence_excerpt(text, max_length=180)
+    if excerpt:
+        parts.append(excerpt)
+    summary = " | ".join(parts)
+    if len(summary) > SUMMARY_CHAR_LIMIT:
+        summary = summary[: SUMMARY_CHAR_LIMIT - 3].rstrip() + "..."
+    return summary
+
+
+def build_page_labels(
+    page_type: str,
+    combined_text: str,
+    embedded_text: str,
+    ocr_text: str,
+    symbols: list[str],
+    timeframes: list[str],
+) -> dict[str, Any]:
+    lowered = combined_text.lower()
+    return {
+        "has_embedded_text": bool(embedded_text),
+        "has_ocr_text": bool(ocr_text),
+        "text_density": text_density_bucket(combined_text),
+        "likely_chart": page_type == "chart",
+        "contains_trade_levels": any(keyword in lowered for keyword in ["entry", "stop", "tp", "target"]),
+        "contains_performance_metrics": any(
+            keyword in lowered for keyword in ["pnl", "drawdown", "win rate", "profit factor", "sharpe"]
+        ),
+        "contains_strategy_rules": any(
+            keyword in lowered for keyword in ["strategy", "rules", "checklist", "criteria"]
+        ),
+        "contains_symbol": bool(symbols),
+        "contains_timeframe": bool(timeframes),
+    }
+
+
+def build_page_training_target(annotation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "page_type": annotation["page_type"],
+        "summary": annotation["summary"],
+        "clean_text": annotation["combined_text"],
+        "symbols": annotation["symbols"],
+        "timeframes": annotation["timeframes"],
+        "trading_concepts": annotation["trading_concepts"],
+        "trading_domains": annotation["trading_domains"],
+        "labels": annotation["labels"],
+    }
+
+
+def to_bbox(rect: Any) -> BBox:
+    if isinstance(rect, (list, tuple)):
+        x0, y0, x1, y1 = rect[:4]
+    else:
+        x0, y0, x1, y1 = rect.x0, rect.y0, rect.x1, rect.y1
+    return (float(x0), float(y0), float(x1), float(y1))
+
+
+def bbox_width(bbox: BBox) -> float:
+    return max(0.0, bbox[2] - bbox[0])
+
+
+def bbox_height(bbox: BBox) -> float:
+    return max(0.0, bbox[3] - bbox[1])
+
+
+def bbox_area(bbox: BBox) -> float:
+    return bbox_width(bbox) * bbox_height(bbox)
+
+
+def bbox_sort_key(bbox: BBox) -> tuple[float, float]:
+    return (bbox[1], bbox[0])
+
+
+def bbox_intersection(bbox_a: BBox, bbox_b: BBox) -> BBox | None:
+    x0 = max(bbox_a[0], bbox_b[0])
+    y0 = max(bbox_a[1], bbox_b[1])
+    x1 = min(bbox_a[2], bbox_b[2])
+    y1 = min(bbox_a[3], bbox_b[3])
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return (x0, y0, x1, y1)
+
+
+def bbox_intersects(bbox_a: BBox, bbox_b: BBox) -> bool:
+    return bbox_intersection(bbox_a, bbox_b) is not None
+
+
+def bbox_expand(bbox: BBox, padding: float, page_bbox: BBox) -> BBox:
+    return (
+        max(page_bbox[0], bbox[0] - padding),
+        max(page_bbox[1], bbox[1] - padding),
+        min(page_bbox[2], bbox[2] + padding),
+        min(page_bbox[3], bbox[3] + padding),
+    )
+
+
+def bbox_union(bbox_a: BBox, bbox_b: BBox) -> BBox:
+    return (
+        min(bbox_a[0], bbox_b[0]),
+        min(bbox_a[1], bbox_b[1]),
+        max(bbox_a[2], bbox_b[2]),
+        max(bbox_a[3], bbox_b[3]),
+    )
+
+
+def bbox_overlap_ratio(bbox_a: BBox, bbox_b: BBox) -> float:
+    overlap = bbox_intersection(bbox_a, bbox_b)
+    if overlap is None:
+        return 0.0
+    return bbox_area(overlap) / max(min(bbox_area(bbox_a), bbox_area(bbox_b)), 1.0)
+
+
+def bbox_axis_overlap_ratio(bbox_a: BBox, bbox_b: BBox, axis: str) -> float:
+    if axis == "x":
+        start = max(bbox_a[0], bbox_b[0])
+        end = min(bbox_a[2], bbox_b[2])
+        length = max(0.0, end - start)
+        base = max(min(bbox_width(bbox_a), bbox_width(bbox_b)), 1.0)
+        return length / base
+
+    start = max(bbox_a[1], bbox_b[1])
+    end = min(bbox_a[3], bbox_b[3])
+    length = max(0.0, end - start)
+    base = max(min(bbox_height(bbox_a), bbox_height(bbox_b)), 1.0)
+    return length / base
+
+
+def bbox_vertical_gap(bbox_a: BBox, bbox_b: BBox) -> float:
+    if bbox_a[3] < bbox_b[1]:
+        return bbox_b[1] - bbox_a[3]
+    if bbox_b[3] < bbox_a[1]:
+        return bbox_a[1] - bbox_b[3]
+    return 0.0
+
+
+def bbox_horizontal_gap(bbox_a: BBox, bbox_b: BBox) -> float:
+    if bbox_a[2] < bbox_b[0]:
+        return bbox_b[0] - bbox_a[2]
+    if bbox_b[2] < bbox_a[0]:
+        return bbox_a[0] - bbox_b[2]
+    return 0.0
+
+
+def bbox_contains(outer_bbox: BBox, inner_bbox: BBox, threshold: float = 0.95) -> bool:
+    overlap = bbox_intersection(outer_bbox, inner_bbox)
+    if overlap is None:
+        return False
+    return bbox_area(overlap) / max(bbox_area(inner_bbox), 1.0) >= threshold
+
+
+def bbox_to_json(bbox: BBox) -> dict[str, float]:
+    return {
+        "x0": round(bbox[0], 2),
+        "y0": round(bbox[1], 2),
+        "x1": round(bbox[2], 2),
+        "y1": round(bbox[3], 2),
+    }
+
+
+def bbox_ratio_to_json(bbox: BBox, page_bbox: BBox) -> dict[str, float]:
+    page_width = max(bbox_width(page_bbox), 1.0)
+    page_height = max(bbox_height(page_bbox), 1.0)
+    return {
+        "x0": round((bbox[0] - page_bbox[0]) / page_width, 4),
+        "y0": round((bbox[1] - page_bbox[1]) / page_height, 4),
+        "x1": round((bbox[2] - page_bbox[0]) / page_width, 4),
+        "y1": round((bbox[3] - page_bbox[1]) / page_height, 4),
+    }
+
+
+def is_visual_candidate(bbox: BBox, page_bbox: BBox) -> bool:
+    page_area = max(bbox_area(page_bbox), 1.0)
+    width_ratio = bbox_width(bbox) / max(bbox_width(page_bbox), 1.0)
+    height_ratio = bbox_height(bbox) / max(bbox_height(page_bbox), 1.0)
+    area_ratio = bbox_area(bbox) / page_area
+    return (
+        width_ratio >= ASSET_MIN_WIDTH_RATIO
+        and height_ratio >= ASSET_MIN_HEIGHT_RATIO
+        and area_ratio >= ASSET_MIN_AREA_RATIO
+    )
+
+
+def normalize_context_line(line: str) -> str:
+    line = line.replace("\x00", " ").replace("\u00a0", " ")
+    line = re.sub(r"^[•*\-–—]+\s*", "", line.strip())
+    line = re.sub(r"\s+", " ", line)
+    return line.strip(" |")
+
+
+def is_noise_line(line: str) -> bool:
+    lowered = line.lower().strip()
+    if not lowered:
+        return True
+    if re.fullmatch(r"(page\s*)?\d+(\s*(/|of)\s*\d+)?", lowered):
+        return True
+    if re.fullmatch(r"[-_=|. ]{3,}", lowered):
+        return True
+    if len(lowered) == 1 and not lowered.isalnum():
+        return True
+    return False
+
+
+def polish_context_lines(text: str, max_lines: int | None = None) -> list[str]:
+    if not text:
+        return []
+
+    prepared = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+    raw_lines = prepared.splitlines() if "\n" in prepared else re.split(r"(?<=[.!?])\s+", prepared)
+    cleaned_lines: list[str] = []
+    for raw_line in raw_lines:
+        line = normalize_context_line(raw_line)
+        if is_noise_line(line):
+            continue
+        cleaned_lines.append(line)
+
+    deduplicated = unique_lines(cleaned_lines)
+    if max_lines is not None:
+        return deduplicated[:max_lines]
+    return deduplicated
+
+
+def build_context_text(text_blocks: list[LayoutTextBlock]) -> str:
+    lines: list[str] = []
+    for text_block in text_blocks:
+        lines.extend(polish_context_lines(text_block.text))
+    return "\n".join(unique_lines(lines)[:10])
+
+
+def infer_context_heading(text_blocks: list[LayoutTextBlock]) -> str:
+    prioritized_blocks = sorted(text_blocks, key=lambda item: (-item.font_size, *bbox_sort_key(item.bbox)))
+    for text_block in prioritized_blocks:
+        lines = meaningful_text_lines(text_block.text)[:2]
+        for line in lines:
+            if 4 <= len(line) <= 110:
+                return line
+
+    fallback_lines = polish_context_lines("\n".join(text_block.text for text_block in text_blocks), max_lines=1)
+    return fallback_lines[0] if fallback_lines else ""
+
+
+def extract_page_layout(page: Any) -> tuple[list[LayoutTextBlock], list[BBox]]:
+    payload = page.get_text("dict")
+    text_blocks: list[LayoutTextBlock] = []
+    image_bboxes: list[BBox] = []
+
+    for block in payload.get("blocks", []):
+        bbox = block.get("bbox")
+        if not bbox:
+            continue
+
+        if block.get("type") == 0:
+            lines: list[str] = []
+            max_font_size = 0.0
+            for line in block.get("lines", []):
+                span_parts: list[str] = []
+                for span in line.get("spans", []):
+                    span_text = str(span.get("text", ""))
+                    if not span_text.strip():
+                        continue
+                    span_parts.append(span_text)
+                    max_font_size = max(max_font_size, float(span.get("size") or 0.0))
+                if span_parts:
+                    lines.append("".join(span_parts))
+
+            text = normalize_whitespace("\n".join(lines))
+            if text:
+                text_blocks.append(LayoutTextBlock(bbox=to_bbox(bbox), text=text, font_size=max_font_size))
+        elif block.get("type") == 1:
+            image_bboxes.append(to_bbox(bbox))
+
+    text_blocks.sort(key=lambda item: bbox_sort_key(item.bbox))
+    image_bboxes.sort(key=bbox_sort_key)
+    return text_blocks, image_bboxes
+
+
+def merge_bboxes(bboxes: list[BBox], gap: float, page_bbox: BBox) -> list[BBox]:
+    merged: list[BBox] = []
+    for bbox in sorted(bboxes, key=bbox_sort_key):
+        candidate = bbox
+        for index, existing in enumerate(merged):
+            expanded_existing = bbox_expand(existing, gap, page_bbox)
+            expanded_candidate = bbox_expand(candidate, gap, page_bbox)
+            if bbox_intersects(expanded_existing, expanded_candidate):
+                merged[index] = bbox_union(existing, candidate)
+                break
+        else:
+            merged.append(candidate)
+
+    changed = True
+    while changed:
+        changed = False
+        next_pass: list[BBox] = []
+        for bbox in merged:
+            for index, existing in enumerate(next_pass):
+                expanded_existing = bbox_expand(existing, gap, page_bbox)
+                expanded_candidate = bbox_expand(bbox, gap, page_bbox)
+                if bbox_intersects(expanded_existing, expanded_candidate):
+                    next_pass[index] = bbox_union(existing, bbox)
+                    changed = True
+                    break
+            else:
+                next_pass.append(bbox)
+        merged = next_pass
+
+    return sorted(merged, key=bbox_sort_key)
+
+
+def extract_drawing_bboxes(page: Any, page_bbox: BBox) -> list[BBox]:
+    get_drawings = getattr(page, "get_drawings", None)
+    if get_drawings is None:
+        return []
+
+    raw_bboxes: list[BBox] = []
+    page_area = max(bbox_area(page_bbox), 1.0)
+    page_width = max(bbox_width(page_bbox), 1.0)
+    for drawing in get_drawings():
+        rect = drawing.get("rect")
+        if not rect:
+            continue
+        bbox = to_bbox(rect)
+        if bbox_area(bbox) <= 0:
+            continue
+
+        area_ratio = bbox_area(bbox) / page_area
+        width_ratio = bbox_width(bbox) / page_width
+        if area_ratio < max(ASSET_MIN_AREA_RATIO * 1.5, 0.03):
+            continue
+        if width_ratio < max(ASSET_MIN_WIDTH_RATIO, 0.25):
+            continue
+        raw_bboxes.append(bbox)
+
+    return merge_bboxes(raw_bboxes, DRAWING_CLUSTER_GAP, page_bbox)
+
+
+def infer_gap_visual_bboxes(text_blocks: list[LayoutTextBlock], page_bbox: BBox) -> list[BBox]:
+    if not text_blocks:
+        return []
+
+    page_height = max(bbox_height(page_bbox), 1.0)
+    horizontal_margin = min(ASSET_CONTEXT_MARGIN / 2, bbox_width(page_bbox) * 0.03)
+    vertical_padding = min(ASSET_CONTEXT_MARGIN / 2, page_height * 0.03)
+
+    occupied_intervals: list[tuple[float, float]] = []
+    for text_block in text_blocks:
+        start = max(page_bbox[1], text_block.bbox[1] - vertical_padding)
+        end = min(page_bbox[3], text_block.bbox[3] + vertical_padding)
+        occupied_intervals.append((start, end))
+
+    occupied_intervals.sort()
+    merged_intervals: list[tuple[float, float]] = []
+    for start, end in occupied_intervals:
+        if merged_intervals and start <= merged_intervals[-1][1]:
+            previous_start, previous_end = merged_intervals[-1]
+            merged_intervals[-1] = (previous_start, max(previous_end, end))
+        else:
+            merged_intervals.append((start, end))
+
+    gap_bboxes: list[BBox] = []
+    cursor = page_bbox[1]
+    min_gap_height = page_height * TEXT_GAP_MIN_RATIO
+    for start, end in merged_intervals:
+        if start - cursor >= min_gap_height:
+            gap_bboxes.append(
+                (
+                    page_bbox[0] + horizontal_margin,
+                    cursor,
+                    page_bbox[2] - horizontal_margin,
+                    start,
+                )
+            )
+        cursor = max(cursor, end)
+
+    if page_bbox[3] - cursor >= min_gap_height:
+        gap_bboxes.append(
+            (
+                page_bbox[0] + horizontal_margin,
+                cursor,
+                page_bbox[2] - horizontal_margin,
+                page_bbox[3] - vertical_padding,
+            )
+        )
+
+    return gap_bboxes
+
+
+def merge_visual_asset_candidates(
+    candidates: list[VisualAssetCandidate],
+    page_bbox: BBox,
+) -> list[VisualAssetCandidate]:
+    merged: list[VisualAssetCandidate] = []
+    for candidate in sorted(candidates, key=lambda item: (-bbox_area(item.bbox), *bbox_sort_key(item.bbox))):
+        for index, existing in enumerate(merged):
+            if (
+                bbox_overlap_ratio(existing.bbox, candidate.bbox) >= 0.75
+                or bbox_contains(existing.bbox, candidate.bbox, 0.9)
+                or bbox_contains(candidate.bbox, existing.bbox, 0.9)
+            ):
+                merged_bbox = bbox_union(existing.bbox, candidate.bbox)
+                merged_source_parts = sorted(set((existing.source + "+" + candidate.source).split("+")))
+                merged[index] = VisualAssetCandidate(
+                    bbox=bbox_expand(merged_bbox, 0, page_bbox),
+                    source="+".join(merged_source_parts),
+                )
+                break
+        else:
+            merged.append(candidate)
+
+    return sorted(merged, key=lambda item: bbox_sort_key(item.bbox))
+
+
+def discover_visual_asset_candidates(
+    page: Any,
+    text_blocks: list[LayoutTextBlock],
+    image_bboxes: list[BBox],
+    page_bbox: BBox,
+) -> list[VisualAssetCandidate]:
+    candidates: list[VisualAssetCandidate] = []
+    for bbox in image_bboxes:
+        if is_visual_candidate(bbox, page_bbox):
+            candidates.append(VisualAssetCandidate(bbox=bbox, source="embedded_image"))
+
+    for bbox in extract_drawing_bboxes(page, page_bbox):
+        if is_visual_candidate(bbox, page_bbox):
+            candidates.append(VisualAssetCandidate(bbox=bbox, source="vector_drawing"))
+
+    candidates = merge_visual_asset_candidates(candidates, page_bbox)
+    if candidates:
+        return candidates
+
+    fallback_bboxes = infer_gap_visual_bboxes(text_blocks, page_bbox)
+    for bbox in fallback_bboxes:
+        if is_visual_candidate(bbox, page_bbox):
+            candidates.append(VisualAssetCandidate(bbox=bbox, source="text_gap"))
+    return merge_visual_asset_candidates(candidates, page_bbox)
+
+
+def score_text_block_for_asset(text_block: LayoutTextBlock, asset_bbox: BBox, page_bbox: BBox) -> float:
+    context_window = bbox_expand(asset_bbox, ASSET_CONTEXT_MARGIN, page_bbox)
+    max_vertical_gap = max(ASSET_CONTEXT_MARGIN * 2, bbox_height(page_bbox) * 0.18)
+    x_overlap = bbox_axis_overlap_ratio(asset_bbox, text_block.bbox, axis="x")
+    vertical_gap = bbox_vertical_gap(asset_bbox, text_block.bbox)
+    horizontal_gap = bbox_horizontal_gap(asset_bbox, text_block.bbox)
+    same_column = x_overlap >= 0.35
+    close_to_asset = same_column and vertical_gap <= max_vertical_gap
+    inside_window = bbox_intersects(context_window, text_block.bbox)
+    if not inside_window and not close_to_asset:
+        return float("-inf")
+
+    score = x_overlap * 2.5
+    score += 1.0 / (1.0 + (vertical_gap / 72.0))
+    if text_block.bbox[3] <= asset_bbox[1]:
+        score += 0.2
+    if text_block.font_size >= 14 and text_block.bbox[3] <= asset_bbox[1]:
+        score += 0.4
+    score -= min(horizontal_gap / max(bbox_width(page_bbox), 1.0), 1.0)
+    return score
+
+
+def asset_text_block_preference(text_block: LayoutTextBlock, asset_bbox: BBox) -> int:
+    block_center_y = (text_block.bbox[1] + text_block.bbox[3]) / 2
+    asset_center_y = (asset_bbox[1] + asset_bbox[3]) / 2
+    return 1 if block_center_y <= asset_center_y else 0
+
+
+def select_asset_text_blocks(
+    text_blocks: list[LayoutTextBlock],
+    asset_bbox: BBox,
+    page_bbox: BBox,
+    sibling_asset_bboxes: list[BBox] | None = None,
+) -> list[LayoutTextBlock]:
+    scored_blocks: list[tuple[float, LayoutTextBlock]] = []
+    sibling_asset_bboxes = sibling_asset_bboxes or []
+
+    for text_block in text_blocks:
+        current_score = score_text_block_for_asset(text_block, asset_bbox, page_bbox)
+        if current_score == float("-inf"):
+            continue
+
+        competing_scores = [
+            score_text_block_for_asset(text_block, sibling_bbox, page_bbox)
+            for sibling_bbox in sibling_asset_bboxes
+        ]
+        best_competing_score = max(competing_scores, default=float("-inf"))
+        if best_competing_score > current_score:
+            continue
+        if sibling_asset_bboxes and abs(best_competing_score - current_score) <= 1e-6:
+            current_preference = asset_text_block_preference(text_block, asset_bbox)
+            competing_preference = max(
+                (
+                    asset_text_block_preference(text_block, sibling_bbox)
+                    for sibling_bbox, sibling_score in zip(sibling_asset_bboxes, competing_scores)
+                    if abs(sibling_score - best_competing_score) <= 1e-6
+                ),
+                default=0,
+            )
+            if competing_preference > current_preference:
+                continue
+
+        scored_blocks.append((current_score, text_block))
+
+    if not scored_blocks:
+        fallback_blocks = [
+            text_block
+            for text_block in text_blocks
+            if bbox_axis_overlap_ratio(asset_bbox, text_block.bbox, axis="x") >= 0.2
+        ]
+        fallback_blocks = sorted(
+            fallback_blocks,
+            key=lambda item: (bbox_vertical_gap(asset_bbox, item.bbox), bbox_horizontal_gap(asset_bbox, item.bbox)),
+        )
+        return sorted(fallback_blocks[:2], key=lambda item: bbox_sort_key(item.bbox))
+
+    chosen: list[LayoutTextBlock] = []
+    seen_texts: set[str] = set()
+    for _score, text_block in sorted(scored_blocks, key=lambda item: item[0], reverse=True):
+        fingerprint = text_block.text.lower()
+        if fingerprint in seen_texts:
+            continue
+        chosen.append(text_block)
+        seen_texts.add(fingerprint)
+        if len(chosen) >= ASSET_MAX_CONTEXT_BLOCKS:
+            break
+
+    return sorted(chosen, key=lambda item: bbox_sort_key(item.bbox))
+
+
+def extract_bias(text: str) -> str | None:
+    lowered = ascii_fold(text).lower()
+    has_bullish = bool(re.search(r"\b(bullish|bullisch)\b", lowered))
+    has_bearish = bool(re.search(r"\b(bearish|bearisch)\b", lowered))
+    if has_bullish and not has_bearish:
+        return "bullish"
+    if has_bearish and not has_bullish:
+        return "bearish"
+    return None
+
+
+def extract_direction(text: str) -> str | None:
+    lowered = ascii_fold(text).lower()
+    has_long = bool(re.search(r"\b(long|buy|kauf)\b", lowered))
+    has_short = bool(re.search(r"\b(short|sell|verkauf)\b", lowered))
+    if has_long and not has_short:
+        return "long"
+    if has_short and not has_long:
+        return "short"
+    return None
+
+
+def extract_setup_status(text: str) -> str | None:
+    lowered = ascii_fold(text).lower()
+    no_setup_patterns = [
+        r"\bkein\s+setup\b",
+        r"\bkeine[sr]?\s+setup\b",
+        r"\bno\s+setup\b",
+        r"\bwithout\s+setup\b",
+        r"\bohne\s+setup\b",
+        r"\bkein\s+signal\b",
+    ]
+    if any(re.search(pattern, lowered) for pattern in no_setup_patterns):
+        return "no_setup"
+    if re.search(r"\bsetup\b", lowered):
+        return "setup_mentioned"
+    return None
+
+
+def display_name_for_symbol(symbol: str | None) -> str | None:
+    if not symbol:
+        return None
+    return SYMBOL_DISPLAY_NAMES.get(symbol, symbol)
+
+
+def extract_trade_levels(text: str) -> dict[str, str]:
+    patterns = {
+        "entry": [
+            r"\bentry(?:\s*price)?\b[:\s-]*([0-9]+(?:[.,][0-9]+)*)",
+        ],
+        "stop_loss": [
+            r"\bstop(?:\s*loss)?\b[:\s-]*([0-9]+(?:[.,][0-9]+)*)",
+            r"\bsl\b[:\s-]*([0-9]+(?:[.,][0-9]+)*)",
+        ],
+        "take_profit": [
+            r"\btake\s*profit\b[:\s-]*([0-9]+(?:[.,][0-9]+)*)",
+            r"\btp\b[:\s-]*([0-9]+(?:[.,][0-9]+)*)",
+            r"\btarget\b[:\s-]*([0-9]+(?:[.,][0-9]+)*)",
+        ],
+    }
+    extracted: dict[str, str] = {}
+    for key, key_patterns in patterns.items():
+        for pattern in key_patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                extracted[key] = match.group(1)
+                break
+    return extracted
+
+
+def infer_asset_type(
+    context_text: str,
+    ocr_text: str,
+    symbols: list[str],
+    timeframes: list[str],
+    trading_concepts: list[str],
+    trading_domains: list[str],
+) -> str:
+    combined = f"{context_text}\n{ocr_text}".lower()
+    if (
+        symbols
+        or timeframes
+        or trading_concepts
+        or "technical_analysis" in trading_domains
+        or any(keyword in combined for keyword in ["chart", "candlestick", "trendline", "entry", "stop loss", "take profit"])
+    ):
+        return "chart"
+    if "performance_review" in trading_domains or any(
+        keyword in combined for keyword in ["equity curve", "drawdown", "win rate", "profit factor", "sharpe", "pnl"]
+    ):
+        return "performance_panel"
+    if any(keyword in combined for keyword in ["strategy", "rules", "checklist", "playbook"]):
+        return "strategy_figure"
+    if context_text or ocr_text:
+        return "figure"
+    return "unknown"
+
+
+def build_asset_summary(
+    asset_type: str,
+    page_type: str,
+    primary_symbol: str | None,
+    venue: str | None,
+    symbols: list[str],
+    timeframes: list[str],
+    concepts: list[str],
+    bias: str | None,
+    setup_status: str | None,
+    text: str,
+) -> str:
+    parts: list[str] = []
+    if primary_symbol:
+        primary_part = primary_symbol
+        if timeframes:
+            primary_part += " " + "/".join(timeframes[:2])
+        primary_part += f" {asset_type.replace('_', ' ')}"
+        parts.append(primary_part)
+    elif timeframes:
+        parts.append("/".join(timeframes[:2]) + f" {asset_type.replace('_', ' ')}")
+    elif asset_type != "unknown":
+        parts.append(asset_type.replace("_", " "))
+    elif page_type != "unknown":
+        parts.append(page_type.replace("_", " "))
+
+    if bias:
+        parts.append(bias + " bias")
+    if setup_status == "no_setup":
+        parts.append("no setup")
+    if venue:
+        parts.append(venue)
+    if concepts:
+        parts.append("concepts: " + ", ".join(concepts[:3]))
+    focus_line = select_focus_line(text)
+    excerpt = focus_line or sentence_excerpt(text, max_length=180)
+    if excerpt:
+        parts.append(excerpt)
+    summary = " | ".join(parts)
+    if len(summary) > SUMMARY_CHAR_LIMIT:
+        summary = summary[: SUMMARY_CHAR_LIMIT - 3].rstrip() + "..."
+    return summary
+
+
+def build_asset_description(
+    asset_type: str,
+    page_type: str,
+    primary_symbol: str | None,
+    instrument_name: str | None,
+    venue: str | None,
+    symbols: list[str],
+    timeframes: list[str],
+    concepts: list[str],
+    context_text: str,
+    ocr_text: str,
+    bias: str | None,
+    direction: str | None,
+    setup_status: str | None,
+    trade_levels: dict[str, str],
+) -> str:
+    if asset_type == "chart":
+        if primary_symbol and timeframes:
+            opening = f"Trading chart for {primary_symbol} on {', '.join(timeframes[:2])}."
+        elif primary_symbol:
+            opening = f"Trading chart for {primary_symbol}."
+        else:
+            opening = "Trading chart."
+    elif asset_type != "unknown":
+        opening = f"{asset_type.replace('_', ' ').capitalize()}."
+    elif page_type != "unknown":
+        opening = f"{page_type.replace('_', ' ').capitalize()} visual."
+    else:
+        opening = "Trading-related visual."
+
+    sentences = [opening]
+    if instrument_name and primary_symbol and instrument_name != primary_symbol:
+        sentences.append(f"Instrument label: {instrument_name}.")
+    if venue:
+        sentences.append(f"Venue: {venue}.")
+    if bias:
+        sentences.append(f"Market bias: {bias}.")
+    if direction:
+        sentences.append(f"Explicit direction: {direction}.")
+    if setup_status == "no_setup":
+        sentences.append("Context states that no setup was present.")
+    elif setup_status == "setup_mentioned":
+        sentences.append("A setup is mentioned in the surrounding context.")
+    if concepts:
+        sentences.append("Key concepts: " + ", ".join(concept.replace("_", " ") for concept in concepts[:4]) + ".")
+    if trade_levels:
+        level_summary = ", ".join(
+            f"{field_name.replace('_', ' ')} {field_value}" for field_name, field_value in trade_levels.items()
+        )
+        sentences.append(f"Mentioned levels: {level_summary}.")
+
+    excerpt_source = context_text or ocr_text
+    excerpt = select_focus_line(excerpt_source) or sentence_excerpt(excerpt_source, max_length=200)
+    if excerpt:
+        sentences.append(excerpt)
+    elif ocr_text:
+        visible_text = select_focus_line(ocr_text) or sentence_excerpt(ocr_text, max_length=140)
+        if visible_text:
+            sentences.append(f"Visible text: {visible_text}")
+
+    return " ".join(sentences[:5])
+
+
+def build_asset_clean_text(
+    asset_type: str,
+    primary_symbol: str | None,
+    instrument_name: str | None,
+    venue: str | None,
+    timeframes: list[str],
+    bias: str | None,
+    direction: str | None,
+    setup_status: str | None,
+    context_text: str,
+    ocr_text: str,
+    trade_levels: dict[str, str],
+) -> str:
+    lines: list[str] = [f"Asset type: {asset_type}"]
+    if primary_symbol:
+        lines.append(f"Instrument: {primary_symbol}")
+    if instrument_name and instrument_name != primary_symbol:
+        lines.append(f"Instrument label: {instrument_name}")
+    if venue:
+        lines.append(f"Venue: {venue}")
+    if timeframes:
+        lines.append("Timeframes: " + ", ".join(timeframes))
+    if bias:
+        lines.append(f"Bias: {bias}")
+    if direction:
+        lines.append(f"Direction: {direction}")
+    if setup_status:
+        lines.append("Setup status: " + setup_status.replace("_", " "))
+    if trade_levels:
+        level_summary = ", ".join(
+            f"{field_name.replace('_', ' ')} {field_value}" for field_name, field_value in trade_levels.items()
+        )
+        lines.append("Levels: " + level_summary)
+
+    focus_context = select_focus_line(context_text)
+    if focus_context:
+        lines.append("Context note: " + focus_context)
+
+    context_fingerprint = focus_context.lower() if focus_context else None
+    visible_lines = [
+        line
+        for line in select_visible_label_lines(ocr_text)
+        if context_fingerprint is None or line.lower() != context_fingerprint
+    ]
+    if visible_lines:
+        lines.append("Visible labels: " + "; ".join(visible_lines[:3]))
+
+    return "\n".join(lines)
+
+
+def build_asset_labels(
+    asset_type: str,
+    page_type: str,
+    combined_text: str,
+    context_text: str,
+    ocr_text: str,
+    symbols: list[str],
+    timeframes: list[str],
+    asset_bbox: BBox,
+    page_bbox: BBox,
+    paired_text_blocks: int,
+) -> dict[str, Any]:
+    lowered = combined_text.lower()
+    return {
+        "has_context_text": bool(context_text),
+        "has_ocr_text": bool(ocr_text),
+        "text_density": text_density_bucket(combined_text),
+        "likely_chart": asset_type == "chart" or page_type == "chart",
+        "contains_trade_levels": any(keyword in lowered for keyword in ["entry", "stop", "tp", "target"]),
+        "contains_performance_metrics": any(
+            keyword in lowered for keyword in ["pnl", "drawdown", "win rate", "profit factor", "sharpe"]
+        ),
+        "contains_strategy_rules": any(keyword in lowered for keyword in ["strategy", "rules", "checklist", "criteria"]),
+        "contains_symbol": bool(symbols),
+        "contains_timeframe": bool(timeframes),
+        "is_large_visual": (bbox_area(asset_bbox) / max(bbox_area(page_bbox), 1.0)) >= 0.2,
+        "paired_text_blocks": paired_text_blocks,
+    }
+
+
+def build_asset_training_target(annotation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "asset_type": annotation["asset_type"],
+        "page_type": annotation["page_type"],
+        "caption": annotation["caption"],
+        "description": annotation["description"],
+        "clean_text": annotation["clean_text"],
+        "context_text": annotation["context_text"],
+        "ocr_text": annotation["ocr_text"],
+        "primary_symbol": annotation["primary_symbol"],
+        "instrument_name": annotation["instrument_name"],
+        "venue": annotation["venue"],
+        "symbols": annotation["symbols"],
+        "timeframes": annotation["timeframes"],
+        "bias": annotation["bias"],
+        "direction": annotation["direction"],
+        "setup_status": annotation["setup_status"],
+        "trade_levels": annotation["trade_levels"],
+        "trading_concepts": annotation["trading_concepts"],
+        "trading_domains": annotation["trading_domains"],
+        "labels": annotation["labels"],
+    }
+
+
+def asset_padding_for_source(asset_source: str) -> float:
+    if "embedded_image" in asset_source:
+        return 0.0
+    return ASSET_RENDER_PADDING
+
+
+def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    fitz = import_pymupdf()
+    ocr_runtime = detect_ocr_runtime()
+    if fitz is None:
+        return [], [], {
+            "available": False,
+            "status": "missing_pymupdf",
+            "message": "PyMuPDF is required to render PDF pages into image+json pairs.",
+            "ocr_runtime": ocr_runtime,
+        }
+
+    page_annotations: list[dict[str, Any]] = []
+    asset_annotations: list[dict[str, Any]] = []
+    pdf_count = 0
+    page_count = 0
+    asset_count = 0
+    asset_source_counts: dict[str, int] = {}
+
+    for pdf_path in sorted(RAW_PDFS_DIR.rglob("*.pdf")):
+        if not pdf_path.is_file():
+            continue
+
+        source_pdf = pdf_path.relative_to(RAW_PDFS_DIR).as_posix()
+        pdf_slug = slugify(str(Path(source_pdf).with_suffix("")))
+        page_image_dir = MULTIMODAL_IMAGES_DIR / pdf_slug / "pages"
+        asset_image_dir = MULTIMODAL_IMAGES_DIR / pdf_slug / "assets"
+        page_annotation_dir = MULTIMODAL_ANNOTATIONS_DIR / pdf_slug / "pages"
+        asset_annotation_dir = MULTIMODAL_ANNOTATIONS_DIR / pdf_slug / "assets"
+        page_image_dir.mkdir(parents=True, exist_ok=True)
+        asset_image_dir.mkdir(parents=True, exist_ok=True)
+        page_annotation_dir.mkdir(parents=True, exist_ok=True)
+        asset_annotation_dir.mkdir(parents=True, exist_ok=True)
+
+        pdf_document = fitz.open(pdf_path)
+        pdf_count += 1
+        try:
+            for page_index, page in enumerate(pdf_document):
+                page_number = page_index + 1
+                page_bbox = to_bbox(page.rect)
+                page_id = stable_id("pdf_page", source_pdf, str(page_number))
+                page_image_path = page_image_dir / f"page_{page_number:04d}.png"
+                page_annotation_path = page_annotation_dir / f"page_{page_number:04d}.json"
+
+                text_blocks, image_bboxes = extract_page_layout(page)
+                embedded_text = normalize_whitespace("\n\n".join(text_block.text for text_block in text_blocks))
+                asset_candidates = discover_visual_asset_candidates(page, text_blocks, image_bboxes, page_bbox)
+                expanded_asset_bboxes = [
+                    bbox_expand(asset_candidate.bbox, asset_padding_for_source(asset_candidate.source), page_bbox)
+                    for asset_candidate in asset_candidates
+                ]
+
+                asset_ids: list[str] = []
+                for asset_index, asset_candidate in enumerate(asset_candidates, start=1):
+                    asset_bbox = expanded_asset_bboxes[asset_index - 1]
+                    asset_id = stable_id("pdf_asset", source_pdf, str(page_number), str(asset_index))
+                    asset_image_path = asset_image_dir / f"page_{page_number:04d}_asset_{asset_index:02d}.png"
+                    asset_annotation_path = asset_annotation_dir / f"page_{page_number:04d}_asset_{asset_index:02d}.json"
+
+                    asset_pixmap = page.get_pixmap(
+                        matrix=fitz.Matrix(PDF_RENDER_SCALE, PDF_RENDER_SCALE),
+                        clip=fitz.Rect(*asset_bbox),
+                        alpha=False,
+                    )
+                    asset_pixmap.save(str(asset_image_path))
+
+                    raw_ocr_text, ocr_meta = run_ocr(asset_image_path)
+                    polished_ocr_text = "\n".join(polish_context_lines(raw_ocr_text, max_lines=10))
+                    sibling_asset_bboxes = [
+                        sibling_bbox
+                        for sibling_index, sibling_bbox in enumerate(expanded_asset_bboxes, start=1)
+                        if sibling_index != asset_index
+                    ]
+                    nearby_text_blocks = select_asset_text_blocks(
+                        text_blocks,
+                        asset_bbox,
+                        page_bbox,
+                        sibling_asset_bboxes=sibling_asset_bboxes,
+                    )
+                    context_text = build_context_text(nearby_text_blocks)
+                    combined_text, _unused_methods = merge_extracted_text(context_text, polished_ocr_text)
+                    extraction_methods = []
+                    if context_text:
+                        extraction_methods.append("nearby_text")
+                    if polished_ocr_text:
+                        extraction_methods.append("ocr")
+
+                    analysis_text = combined_text or embedded_text
+                    symbols = extract_symbols(analysis_text)
+                    primary_symbol = symbols[0] if symbols else None
+                    instrument_name = display_name_for_symbol(primary_symbol)
+                    venues = extract_venues(analysis_text)
+                    venue = venues[0] if venues else None
+                    timeframes = extract_timeframes(analysis_text)
+                    trading_concepts = extract_keyword_labels(analysis_text, CONCEPT_KEYWORDS)
+                    trading_domains = extract_keyword_labels(analysis_text, DOMAIN_KEYWORDS)
+                    page_type, page_type_confidence = infer_page_type(analysis_text, symbols, timeframes)
+                    asset_type = infer_asset_type(
+                        context_text=context_text,
+                        ocr_text=polished_ocr_text,
+                        symbols=symbols,
+                        timeframes=timeframes,
+                        trading_concepts=trading_concepts,
+                        trading_domains=trading_domains,
+                    )
+                    bias = extract_bias(analysis_text)
+                    direction = extract_direction(analysis_text)
+                    setup_status = extract_setup_status(analysis_text)
+                    trade_levels = extract_trade_levels(analysis_text)
+                    caption = build_asset_summary(
+                        asset_type=asset_type,
+                        page_type=page_type,
+                        primary_symbol=primary_symbol,
+                        venue=venue,
+                        symbols=symbols,
+                        timeframes=timeframes,
+                        concepts=trading_concepts,
+                        bias=bias,
+                        setup_status=setup_status,
+                        text=analysis_text,
+                    )
+                    description = build_asset_description(
+                        asset_type=asset_type,
+                        page_type=page_type,
+                        primary_symbol=primary_symbol,
+                        instrument_name=instrument_name,
+                        venue=venue,
+                        symbols=symbols,
+                        timeframes=timeframes,
+                        concepts=trading_concepts,
+                        context_text=context_text,
+                        ocr_text=polished_ocr_text,
+                        bias=bias,
+                        direction=direction,
+                        setup_status=setup_status,
+                        trade_levels=trade_levels,
+                    )
+                    clean_text = build_asset_clean_text(
+                        asset_type=asset_type,
+                        primary_symbol=primary_symbol,
+                        instrument_name=instrument_name,
+                        venue=venue,
+                        timeframes=timeframes,
+                        bias=bias,
+                        direction=direction,
+                        setup_status=setup_status,
+                        context_text=context_text,
+                        ocr_text=polished_ocr_text,
+                        trade_levels=trade_levels,
+                    )
+                    labels = build_asset_labels(
+                        asset_type=asset_type,
+                        page_type=page_type,
+                        combined_text=analysis_text,
+                        context_text=context_text,
+                        ocr_text=polished_ocr_text,
+                        symbols=symbols,
+                        timeframes=timeframes,
+                        asset_bbox=asset_bbox,
+                        page_bbox=page_bbox,
+                        paired_text_blocks=len(nearby_text_blocks),
+                    )
+                    review_required = (
+                        not combined_text
+                        or labels["text_density"] == "low"
+                        or asset_type == "unknown"
+                        or page_type_confidence < 0.45
+                        or asset_candidate.source == "text_gap"
+                    )
+
+                    asset_annotation = {
+                        "id": asset_id,
+                        "annotation_version": "2.0",
+                        "pair_type": "visual_asset",
+                        "image_path": root_relative(asset_image_path),
+                        "json_path": root_relative(asset_annotation_path),
+                        "source_pdf": source_pdf,
+                        "page_number": page_number,
+                        "asset_index": asset_index,
+                        "asset_source": asset_candidate.source,
+                        "asset_bbox": bbox_to_json(asset_bbox),
+                        "asset_bbox_ratio": bbox_ratio_to_json(asset_bbox, page_bbox),
+                        "asset_type": asset_type,
+                        "page_type": page_type,
+                        "page_type_confidence": page_type_confidence,
+                        "caption": caption,
+                        "summary": caption,
+                        "description": description,
+                        "clean_text": clean_text,
+                        "context_heading": infer_context_heading(nearby_text_blocks),
+                        "context_text": context_text,
+                        "ocr_text": polished_ocr_text,
+                        "combined_text": combined_text,
+                        "extraction_methods": extraction_methods,
+                        "ocr_metadata": ocr_meta,
+                        "primary_symbol": primary_symbol,
+                        "instrument_name": instrument_name,
+                        "venue": venue,
+                        "symbols": symbols,
+                        "timeframes": timeframes,
+                        "bias": bias,
+                        "direction": direction,
+                        "setup_status": setup_status,
+                        "trade_levels": trade_levels,
+                        "trading_concepts": trading_concepts,
+                        "trading_domains": trading_domains,
+                        "labels": labels,
+                        "review_required": review_required,
+                    }
+                    asset_annotation["target_json"] = build_asset_training_target(asset_annotation)
+                    write_json(asset_annotation_path, asset_annotation)
+                    asset_annotations.append(asset_annotation)
+                    asset_ids.append(asset_id)
+                    asset_count += 1
+                    for source_name in asset_candidate.source.split("+"):
+                        asset_source_counts[source_name] = asset_source_counts.get(source_name, 0) + 1
+
+                page_pixmap = page.get_pixmap(matrix=fitz.Matrix(PDF_RENDER_SCALE, PDF_RENDER_SCALE), alpha=False)
+                page_pixmap.save(str(page_image_path))
+
+                ocr_text, ocr_meta = run_ocr(page_image_path)
+                combined_text, extraction_methods = merge_extracted_text(embedded_text, ocr_text)
+
+                symbols = extract_symbols(combined_text)
+                timeframes = extract_timeframes(combined_text)
+                trading_concepts = extract_keyword_labels(combined_text, CONCEPT_KEYWORDS)
+                trading_domains = extract_keyword_labels(combined_text, DOMAIN_KEYWORDS)
+                page_type, page_type_confidence = infer_page_type(combined_text, symbols, timeframes)
+                labels = build_page_labels(page_type, combined_text, embedded_text, ocr_text, symbols, timeframes)
+                summary = build_auto_summary(page_type, symbols, timeframes, trading_concepts, combined_text)
+
+                review_required = (
+                    not combined_text
+                    or labels["text_density"] == "low"
+                    or page_type == "unknown"
+                    or page_type_confidence < 0.45
+                )
+
+                page_annotation = {
+                    "id": page_id,
+                    "annotation_version": "2.0",
+                    "image_path": root_relative(page_image_path),
+                    "json_path": root_relative(page_annotation_path),
+                    "source_pdf": source_pdf,
+                    "page_number": page_number,
+                    "page_type": page_type,
+                    "page_type_confidence": page_type_confidence,
+                    "summary": summary,
+                    "embedded_text": embedded_text,
+                    "ocr_text": ocr_text,
+                    "combined_text": combined_text,
+                    "extraction_methods": extraction_methods,
+                    "ocr_metadata": ocr_meta,
+                    "symbols": symbols,
+                    "timeframes": timeframes,
+                    "trading_concepts": trading_concepts,
+                    "trading_domains": trading_domains,
+                    "labels": labels,
+                    "review_required": review_required,
+                    "asset_count": len(asset_ids),
+                    "asset_ids": asset_ids,
+                }
+                page_annotation["target_json"] = build_page_training_target(page_annotation)
+                write_json(page_annotation_path, page_annotation)
+                page_annotations.append(page_annotation)
+                page_count += 1
+        finally:
+            pdf_document.close()
+
+    return page_annotations, asset_annotations, {
+        "available": True,
+        "status": "ok",
+        "pdf_count": pdf_count,
+        "page_count": page_count,
+        "asset_count": asset_count,
+        "asset_source_counts": asset_source_counts,
+        "render_scale": PDF_RENDER_SCALE,
+        "ocr_enabled": OCR_ENABLED,
+        "ocr_language": OCR_LANGUAGE,
+        "ocr_runtime": ocr_runtime,
+    }
+
+
+def build_image_json_pair_index(asset_annotations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": annotation["id"],
+            "image_path": annotation["image_path"],
+            "json_path": annotation["json_path"],
+            "source_pdf": annotation["source_pdf"],
+            "page_number": annotation["page_number"],
+            "asset_index": annotation["asset_index"],
+            "asset_type": annotation["asset_type"],
+            "page_type": annotation["page_type"],
+            "asset_source": annotation["asset_source"],
+            "review_required": annotation["review_required"],
+        }
+        for annotation in asset_annotations
+    ]
+
+
+def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            count += 1
+    return count
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def main() -> None:
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    RAW_PDFS_DIR.mkdir(parents=True, exist_ok=True)
+    RAW_NODES_DIR.mkdir(parents=True, exist_ok=True)
+    MULTIMODAL_DIR.mkdir(parents=True, exist_ok=True)
+    MULTIMODAL_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    MULTIMODAL_ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    documents = collect_documents()
+    documents_rows = build_documents_jsonl(documents)
+    knowledge_rows = build_knowledge_jsonl(documents)
+    trade_rows = build_trade_candidates(documents)
+    page_annotations, asset_annotations, multimodal_status = render_pdf_multimodal_assets()
+    image_json_pairs = build_image_json_pair_index(asset_annotations)
+
+    documents_count = write_jsonl(PROCESSED_DIR / "documents.jsonl", documents_rows)
+    knowledge_count = write_jsonl(PROCESSED_DIR / "knowledge_corpus.jsonl", knowledge_rows)
+    trade_count = write_jsonl(PROCESSED_DIR / "trade_candidates.jsonl", trade_rows)
+    page_annotation_count = write_jsonl(MULTIMODAL_DIR / "page_annotations.jsonl", page_annotations)
+    asset_annotation_count = write_jsonl(MULTIMODAL_DIR / "asset_annotations.jsonl", asset_annotations)
+    pair_index_count = write_jsonl(MULTIMODAL_DIR / "image_json_pairs.jsonl", image_json_pairs)
+
+    manifest = {
+        "documents": documents_count,
+        "knowledge_chunks": knowledge_count,
+        "trade_candidates": trade_count,
+        "multimodal_page_annotations": page_annotation_count,
+        "multimodal_asset_annotations": asset_annotation_count,
+        "multimodal_image_json_pairs": pair_index_count,
+        "raw_pdfs_dir": str(RAW_PDFS_DIR),
+        "raw_nodes_dir": str(RAW_NODES_DIR),
+        "multimodal_status": multimodal_status,
+    }
+    write_json(PROCESSED_DIR / "manifest.json", manifest)
+
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

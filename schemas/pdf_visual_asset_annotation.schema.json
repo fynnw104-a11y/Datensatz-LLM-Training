@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trading PDF Visual Asset Annotation",
+  "type": "object",
+  "required": [
+    "id",
+    "image_path",
+    "json_path",
+    "source_pdf",
+    "page_number",
+    "asset_index",
+    "asset_type",
+    "combined_text",
+    "target_json",
+    "review_required"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "annotation_version": {
+      "type": "string"
+    },
+    "pair_type": {
+      "type": "string"
+    },
+    "image_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "json_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_pdf": {
+      "type": "string",
+      "minLength": 1
+    },
+    "page_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "asset_index": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "asset_source": {
+      "type": "string"
+    },
+    "asset_bbox": {
+      "type": "object"
+    },
+    "asset_bbox_ratio": {
+      "type": "object"
+    },
+    "asset_type": {
+      "type": "string",
+      "enum": [
+        "chart",
+        "performance_panel",
+        "strategy_figure",
+        "figure",
+        "unknown"
+      ]
+    },
+    "page_type": {
+      "type": "string",
+      "enum": [
+        "chart",
+        "trade_journal",
+        "performance_report",
+        "strategy_note",
+        "market_analysis",
+        "educational_note",
+        "unknown"
+      ]
+    },
+    "page_type_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "caption": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "context_heading": {
+      "type": "string"
+    },
+    "context_text": {
+      "type": "string"
+    },
+    "ocr_text": {
+      "type": "string"
+    },
+    "combined_text": {
+      "type": "string"
+    },
+    "extraction_methods": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ocr_metadata": {
+      "type": "object"
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "primary_symbol": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "instrument_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "venue": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timeframes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "bias": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "direction": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "setup_status": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "trade_levels": {
+      "type": "object"
+    },
+    "trading_concepts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "trading_domains": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "labels": {
+      "type": "object"
+    },
+    "review_required": {
+      "type": "boolean"
+    },
+    "target_json": {
+      "type": "object",
+      "required": [
+        "asset_type",
+        "page_type",
+        "caption",
+        "description",
+        "clean_text",
+        "context_text",
+        "ocr_text",
+        "primary_symbol",
+        "instrument_name",
+        "venue",
+        "symbols",
+        "timeframes",
+        "bias",
+        "direction",
+        "setup_status",
+        "trade_levels",
+        "trading_concepts",
+        "trading_domains",
+        "labels"
+      ],
+      "properties": {
+        "asset_type": {
+          "type": "string"
+        },
+        "page_type": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "clean_text": {
+          "type": "string"
+        },
+        "context_text": {
+          "type": "string"
+        },
+        "ocr_text": {
+          "type": "string"
+        },
+        "primary_symbol": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instrument_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venue": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeframes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "setup_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trade_levels": {
+          "type": "object"
+        },
+        "trading_concepts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "trading_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "labels": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

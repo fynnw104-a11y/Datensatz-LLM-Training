@@ -1,0 +1,112 @@
+{
+  "id": "1d4c12926d9af539",
+  "annotation_version": "2.0",
+  "pair_type": "visual_asset",
+  "image_path": "data/processed/multimodal/images/03-10/assets/page_0001_asset_02.png",
+  "json_path": "data/processed/multimodal/annotations/03-10/assets/page_0001_asset_02.json",
+  "source_pdf": "03.10.pdf",
+  "page_number": 1,
+  "asset_index": 2,
+  "asset_source": "embedded_image",
+  "asset_bbox": {
+    "x0": 41.76,
+    "y0": 383.45,
+    "x1": 594.48,
+    "y1": 660.94
+  },
+  "asset_bbox_ratio": {
+    "x0": 0.0701,
+    "y0": 0.4554,
+    "x1": 0.9984,
+    "y1": 0.7849
+  },
+  "asset_type": "chart",
+  "page_type": "chart",
+  "page_type_confidence": 0.5,
+  "caption": "BTCUSDT M15 chart | no setup | BINANCE | Im M15 gab es heute kein Setup",
+  "summary": "BTCUSDT M15 chart | no setup | BINANCE | Im M15 gab es heute kein Setup",
+  "description": "Trading chart for BTCUSDT on M15. Instrument label: Bitcoin / TetherUS. Venue: BINANCE. Context states that no setup was present. Im M15 gab es heute kein Setup",
+  "clean_text": "Asset type: chart\nInstrument: BTCUSDT\nInstrument label: Bitcoin / TetherUS\nVenue: BINANCE\nTimeframes: M15\nSetup status: no setup\nContext note: Im M15 gab es heute kein Setup\nVisible labels: Bitcoin / TetherUS, 15, BINANCE 1.800,01 H61.058,00 L60.800,00 C6 6,0 03.220,00; All-In-One Sessions, Weekly, Mond evious Highs/Lows",
+  "context_heading": "Im M15 gab es heute kein Setup",
+  "context_text": "Im M15 gab es heute kein Setup",
+  "ocr_text": "A | ME oF | FY cm\nl i LY\n® #7000\nFynn160k freigegeben für TradingView.com, Okt 08, 2024 08:36 UTC+2\nBitcoin / TetherUS, 15, BINANCE 1.800,01 H61.058,00 L60.800,00 C6 6,0 03.220,00\nAll-In-One Sessions, Weekly, Mond evious Highs/Lows\na",
+  "combined_text": "Im M15 gab es heute kein Setup\nA | ME oF | FY cm\nl i LY\n® #7000\nFynn160k freigegeben für TradingView.com, Okt 08, 2024 08:36 UTC+2\nBitcoin / TetherUS, 15, BINANCE 1.800,01 H61.058,00 L60.800,00 C6 6,0 03.220,00\nAll-In-One Sessions, Weekly, Mond evious Highs/Lows\na",
+  "extraction_methods": [
+    "nearby_text",
+    "ocr"
+  ],
+  "ocr_metadata": {
+    "enabled": true,
+    "available": true,
+    "status": "ok",
+    "language": "deu+eng",
+    "command": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+    "tessdata_prefix": "C:\\Users\\fynnw\\Desktop\\Datensatz-LLM-Training\\.tessdata"
+  },
+  "primary_symbol": "BTCUSDT",
+  "instrument_name": "Bitcoin / TetherUS",
+  "venue": "BINANCE",
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "timeframes": [
+    "M15"
+  ],
+  "bias": null,
+  "direction": null,
+  "setup_status": "no_setup",
+  "trade_levels": {},
+  "trading_concepts": [],
+  "trading_domains": [],
+  "labels": {
+    "has_context_text": true,
+    "has_ocr_text": true,
+    "text_density": "medium",
+    "likely_chart": true,
+    "contains_trade_levels": false,
+    "contains_performance_metrics": false,
+    "contains_strategy_rules": false,
+    "contains_symbol": true,
+    "contains_timeframe": true,
+    "is_large_visual": true,
+    "paired_text_blocks": 1
+  },
+  "review_required": false,
+  "target_json": {
+    "asset_type": "chart",
+    "page_type": "chart",
+    "caption": "BTCUSDT M15 chart | no setup | BINANCE | Im M15 gab es heute kein Setup",
+    "description": "Trading chart for BTCUSDT on M15. Instrument label: Bitcoin / TetherUS. Venue: BINANCE. Context states that no setup was present. Im M15 gab es heute kein Setup",
+    "clean_text": "Asset type: chart\nInstrument: BTCUSDT\nInstrument label: Bitcoin / TetherUS\nVenue: BINANCE\nTimeframes: M15\nSetup status: no setup\nContext note: Im M15 gab es heute kein Setup\nVisible labels: Bitcoin / TetherUS, 15, BINANCE 1.800,01 H61.058,00 L60.800,00 C6 6,0 03.220,00; All-In-One Sessions, Weekly, Mond evious Highs/Lows",
+    "context_text": "Im M15 gab es heute kein Setup",
+    "ocr_text": "A | ME oF | FY cm\nl i LY\n® #7000\nFynn160k freigegeben für TradingView.com, Okt 08, 2024 08:36 UTC+2\nBitcoin / TetherUS, 15, BINANCE 1.800,01 H61.058,00 L60.800,00 C6 6,0 03.220,00\nAll-In-One Sessions, Weekly, Mond evious Highs/Lows\na",
+    "primary_symbol": "BTCUSDT",
+    "instrument_name": "Bitcoin / TetherUS",
+    "venue": "BINANCE",
+    "symbols": [
+      "BTCUSDT"
+    ],
+    "timeframes": [
+      "M15"
+    ],
+    "bias": null,
+    "direction": null,
+    "setup_status": "no_setup",
+    "trade_levels": {},
+    "trading_concepts": [],
+    "trading_domains": [],
+    "labels": {
+      "has_context_text": true,
+      "has_ocr_text": true,
+      "text_density": "medium",
+      "likely_chart": true,
+      "contains_trade_levels": false,
+      "contains_performance_metrics": false,
+      "contains_strategy_rules": false,
+      "contains_symbol": true,
+      "contains_timeframe": true,
+      "is_large_visual": true,
+      "paired_text_blocks": 1
+    }
+  }
+}
