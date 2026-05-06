@@ -115,6 +115,60 @@ class ChatGPTClientTests(unittest.TestCase):
         self.assertEqual(response.url, "https://chatgpt.com/c/existing-chat")
         self.assertEqual(client._is_generation_in_progress.call_count, 2)
 
+    def test_find_file_input_prefers_current_composer_input(self) -> None:
+        client = self._build_client()
+        root = object()
+        off_input = mock.Mock()
+        off_input.is_enabled.return_value = True
+        on_input = mock.Mock()
+        on_input.is_enabled.return_value = True
+        client.driver.find_elements = mock.Mock(return_value=[off_input, on_input])
+        client._composer_root = mock.Mock(return_value=root)
+        client._file_input_belongs_to_composer = mock.Mock(side_effect=[False, True])
+        client._element_attribute = mock.Mock(return_value="")
+
+        result = ChatGPTClient._find_file_input(client)
+
+        self.assertIs(result, on_input)
+
+    def test_attach_files_resets_selected_input_before_upload(self) -> None:
+        client = self._build_client()
+        file_input = mock.Mock()
+        client._prepare_clean_composer = mock.Mock()
+        client._dismiss_share_dialog = mock.Mock()
+        client.driver.execute_script = mock.Mock()
+        client._find_file_input = mock.Mock(return_value=file_input)
+        client._reset_file_input_value = mock.Mock(return_value=True)
+        client.selector_catalog = mock.Mock()
+        client.selector_catalog.find_by_attribute = mock.Mock(return_value=None)
+
+        attachment = ROOT / "README.md"
+
+        with mock.patch("chatgpt_automation.client.time.sleep", return_value=None):
+            ChatGPTClient.attach_files(client, [attachment])
+
+        client._prepare_clean_composer.assert_called_once_with()
+        client._reset_file_input_value.assert_called_once_with(file_input)
+        file_input.send_keys.assert_called_once_with(str(attachment.resolve()))
+
+    def test_prepare_clean_composer_reloads_when_attachments_remain(self) -> None:
+        client = self._build_client(current_url="https://chatgpt.com/c/existing-chat")
+        composer = object()
+        client._dismiss_share_dialog = mock.Mock()
+        client._focus_composer = mock.Mock(return_value=composer)
+        client._clear_composer = mock.Mock()
+        client._clear_pending_attachments = mock.Mock()
+        client._reset_file_inputs = mock.Mock()
+        client._pending_attachment_count = mock.Mock(return_value=1)
+        client._reload_conversation_for_clean_composer = mock.Mock()
+
+        ChatGPTClient._prepare_clean_composer(client)
+
+        client._reload_conversation_for_clean_composer.assert_called_once_with()
+        self.assertEqual(client._clear_composer.call_count, 2)
+        self.assertEqual(client._clear_pending_attachments.call_count, 2)
+        self.assertEqual(client._reset_file_inputs.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

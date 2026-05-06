@@ -14,6 +14,7 @@ from chatgpt_automation.selectors import SelectorCatalog
 
 DEFAULT_ASSET_GLOB = "data/processed/multimodal/annotations/*/assets/*.json"
 DEFAULT_RUNS_DIR = ROOT / "data" / "processed" / "chatgpt_runs"
+DEFAULT_MAX_ASSETS_PER_CHAT = 20
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,10 +45,16 @@ def parse_args() -> argparse.Namespace:
         help="Leave the automation browser open after the run for manual inspection.",
     )
     parser.add_argument(
+        "--max-assets-per-chat",
+        type=int,
+        default=DEFAULT_MAX_ASSETS_PER_CHAT,
+        help="Reuse each ChatGPT conversation for up to N assets before starting a fresh one. Use 0 to keep one chat for the whole run.",
+    )
+    parser.add_argument(
         "--new-chat-per-asset",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Start a fresh ChatGPT conversation for each asset to avoid cross-example bleed.",
+        default=False,
+        help="Force a fresh ChatGPT conversation for every asset instead of reusing up to --max-assets-per-chat assets per chat.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Run ChatGPT and write result logs, but do not edit JSONs.")
     return parser.parse_args()
@@ -61,12 +68,20 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def should_start_new_chat(job_index: int, max_assets_per_chat: int | None) -> bool:
+    if job_index == 0:
+        return True
+    if max_assets_per_chat is None or max_assets_per_chat <= 0:
+        return False
+    return job_index % max_assets_per_chat == 0
+
+
 def collect_annotation_jobs(
     glob_pattern: str,
     language: str,
     skip_existing_llm: bool,
     limit: int | None,
-    new_chat_per_asset: bool,
+    max_assets_per_chat: int | None,
 ) -> tuple[list[BatchJob], dict[str, dict[str, Any]]]:
     jobs: list[BatchJob] = []
     context_by_id: dict[str, dict[str, Any]] = {}
@@ -92,7 +107,7 @@ def collect_annotation_jobs(
                     "annotation_path": str(annotation_path.resolve()),
                     "image_path": str(image_path.resolve()),
                 },
-                new_chat=new_chat_per_asset,
+                new_chat=should_start_new_chat(len(jobs), max_assets_per_chat),
             )
         )
         context_by_id[annotation_id] = {
@@ -108,12 +123,13 @@ def collect_annotation_jobs(
 
 def main() -> None:
     args = parse_args()
+    max_assets_per_chat = 1 if args.new_chat_per_asset else args.max_assets_per_chat
     jobs, context_by_id = collect_annotation_jobs(
         glob_pattern=args.glob_pattern,
         language=args.language,
         skip_existing_llm=args.skip_existing_llm,
         limit=args.limit,
-        new_chat_per_asset=args.new_chat_per_asset,
+        max_assets_per_chat=max_assets_per_chat,
     )
     if not jobs:
         print("No matching asset annotations found for enrichment.")

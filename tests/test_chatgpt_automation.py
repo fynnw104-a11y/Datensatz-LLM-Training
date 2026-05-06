@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import unittest
 import uuid
@@ -108,7 +109,7 @@ class BatchParsingTests(unittest.TestCase):
 
 
 class EnrichmentJobTests(unittest.TestCase):
-    def test_collect_annotation_jobs_uses_fresh_chat_per_asset_by_default(self) -> None:
+    def test_collect_annotation_jobs_forces_fresh_chat_when_max_assets_per_chat_is_one(self) -> None:
         temp_root = ROOT / ".tmp" / f"test_collect_annotation_jobs_{uuid.uuid4().hex}"
         annotation_dir = temp_root / "annotations" / "03-10" / "assets"
         image_dir = temp_root / "images" / "03-10" / "assets"
@@ -154,20 +155,70 @@ class EnrichmentJobTests(unittest.TestCase):
                 language="en",
                 skip_existing_llm=True,
                 limit=None,
-                new_chat_per_asset=True,
+                max_assets_per_chat=1,
             )
         finally:
-            if annotation_path.exists():
-                annotation_path.unlink()
-            if image_path.exists():
-                image_path.unlink()
-            for path in [annotation_dir, image_dir, temp_root / "annotations" / "03-10", temp_root / "images" / "03-10", temp_root / "annotations", temp_root / "images", temp_root]:
-                if path.exists():
-                    path.rmdir()
+            shutil.rmtree(temp_root, ignore_errors=True)
 
         self.assertEqual(len(jobs), 1)
         self.assertTrue(jobs[0].new_chat)
         self.assertIn("asset-1", context_by_id)
+
+    def test_collect_annotation_jobs_rotates_chat_after_configured_batch_size(self) -> None:
+        temp_root = ROOT / ".tmp" / f"test_collect_annotation_jobs_rotation_{uuid.uuid4().hex}"
+        annotation_dir = temp_root / "annotations" / "03-10" / "assets"
+        image_dir = temp_root / "images" / "03-10" / "assets"
+        annotation_dir.mkdir(parents=True, exist_ok=True)
+        image_dir.mkdir(parents=True, exist_ok=True)
+
+        for index in range(3):
+            asset_id = f"asset-{index + 1}"
+            annotation_path = annotation_dir / f"page_0001_asset_{index + 1:02d}.json"
+            image_path = image_dir / f"page_0001_asset_{index + 1:02d}.png"
+            image_path.write_bytes(b"fake-image")
+            annotation_path.write_text(
+                json.dumps(
+                    {
+                        "id": asset_id,
+                        "pair_type": "visual_asset",
+                        "image_path": str(image_path.relative_to(ROOT)).replace("\\", "/"),
+                        "asset_type": "chart",
+                        "page_type": "chart",
+                        "summary": f"BTCUSDT H1 chart {index + 1}",
+                        "description": "Trading chart for BTCUSDT on H1.",
+                        "context_heading": "Im H1 waren wir heute Bearisch",
+                        "context_text": "Im H1 waren wir heute Bearisch",
+                        "ocr_text": "Bitcoin / TetherUS, 1h, BINANCE",
+                        "combined_text": "Im H1 waren wir heute Bearisch\nBitcoin / TetherUS, 1h, BINANCE",
+                        "primary_symbol": "BTCUSDT",
+                        "instrument_name": "Bitcoin / TetherUS",
+                        "venue": "BINANCE",
+                        "timeframes": ["H1"],
+                        "bias": "bearish",
+                        "direction": None,
+                        "setup_status": None,
+                        "trade_levels": {},
+                        "trading_concepts": [],
+                        "labels": {"contains_symbol": True, "contains_timeframe": True},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+        try:
+            jobs, _context_by_id = collect_annotation_jobs(
+                glob_pattern=str((temp_root / "annotations" / "*" / "assets" / "*.json").relative_to(ROOT)).replace("\\", "/"),
+                language="en",
+                skip_existing_llm=True,
+                limit=None,
+                max_assets_per_chat=2,
+            )
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
+        self.assertEqual([job.job_id for job in jobs], ["asset-1", "asset-2", "asset-3"])
+        self.assertEqual([job.new_chat for job in jobs], [True, False, True])
 
 
 class EnrichmentTests(unittest.TestCase):

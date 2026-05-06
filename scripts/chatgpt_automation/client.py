@@ -833,13 +833,77 @@ if ((element.getAttribute('contenteditable') || '').toLowerCase() === 'true') {
             return None
         if not inputs:
             return None
-        for element in inputs:
+        root = self._composer_root()
+        best_element: WebElement | None = None
+        best_score = -1
+        for index, element in enumerate(inputs):
             try:
-                if element.is_enabled():
-                    return element
+                if not element.is_enabled():
+                    continue
             except StaleElementReferenceException:
                 continue
-        return inputs[0]
+            score = index
+            if self._file_input_belongs_to_composer(element, root):
+                score += 100
+            if self._element_attribute(element, "multiple").lower() in {"true", "multiple"}:
+                score += 10
+            if score >= best_score:
+                best_score = score
+                best_element = element
+        if best_element is not None:
+            return best_element
+        return inputs[-1]
+
+    def _file_input_belongs_to_composer(self, file_input: WebElement, root: WebElement | None = None) -> bool:
+        if root is None:
+            root = self._composer_root()
+        if root is None:
+            return False
+        try:
+            return bool(
+                self.driver.execute_script(
+                    "return !!(arguments[0] && arguments[1] && arguments[0].contains(arguments[1]));",
+                    root,
+                    file_input,
+                )
+            )
+        except Exception:
+            return False
+
+    def _reset_file_input_value(self, file_input: WebElement) -> bool:
+        try:
+            cleared = self.driver.execute_script(
+                """
+const input = arguments[0];
+if (!input) {
+  return false;
+}
+try {
+  input.value = '';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+} catch (error) {
+  return false;
+}
+const fileCount = input.files ? Number(input.files.length || 0) : 0;
+return fileCount === 0 && !String(input.value || '');
+""",
+                file_input,
+            )
+        except Exception:
+            return False
+        return bool(cleared)
+
+    def _reset_file_inputs(self) -> int:
+        cleared = 0
+        try:
+            inputs = self.driver.find_elements(By.CSS_SELECTOR, FILE_INPUT_CSS)
+        except Exception:
+            return 0
+        for file_input in inputs:
+            if self._reset_file_input_value(file_input):
+                cleared += 1
+        return cleared
 
     def _composer_root(self) -> WebElement | None:
         composer = self._find_best_composer_candidate()
@@ -925,11 +989,24 @@ return total;
                 break
         return removed
 
+    def _reload_conversation_for_clean_composer(self) -> None:
+        target_url = self._current_url() or self._last_conversation_url or self.config.base_url
+        self.driver.get(target_url)
+        self._wait_for_composer()
+
     def _prepare_clean_composer(self) -> None:
         self._dismiss_share_dialog()
         composer = self._focus_composer()
         self._clear_composer(composer)
         self._clear_pending_attachments()
+        self._reset_file_inputs()
+        if self._pending_attachment_count() > 0:
+            self._reload_conversation_for_clean_composer()
+            self._dismiss_share_dialog()
+            composer = self._focus_composer()
+            self._clear_composer(composer)
+            self._clear_pending_attachments()
+            self._reset_file_inputs()
 
     def _write_debug_snapshot(self, reason: str) -> Path | None:
         debug_root = self.config.chatgpt_dir.parent / ".runtime" / "chatgpt" / "debug"
@@ -1005,6 +1082,7 @@ for (const input of document.querySelectorAll(arguments[0])) {
         if file_input is None:
             raise RuntimeError("Could not find a file input on the ChatGPT page.")
 
+        self._reset_file_input_value(file_input)
         file_input.send_keys("\n".join(normalized_paths))
         time.sleep(1.0)
 

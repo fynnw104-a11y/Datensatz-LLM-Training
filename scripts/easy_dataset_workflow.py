@@ -27,6 +27,7 @@ CHATGPT_RUNTIME_DIR = ROOT / ".runtime" / "chatgpt"
 CURATED_FILE = ROOT / "data" / "curated" / "training_examples.jsonl"
 MULTIMODAL_ASSET_GLOB = "data/processed/multimodal/annotations/*/assets/*.json"
 PROCESSED_CHATGPT_RUNS_DIR = ROOT / "data" / "processed" / "chatgpt_runs"
+DEFAULT_MAX_ASSETS_PER_CHAT = 20
 SAFE_CONFIG_OVERRIDES = {
     "user_data_dir": "../.runtime/chatgpt/browser_profile",
     "cookies_file": "../.runtime/chatgpt/cookies/ChatGPT.json",
@@ -343,6 +344,7 @@ def run_training_split() -> None:
 def run_enrichment(
     limit: int | None,
     language: str,
+    max_assets_per_chat: int,
     dry_run: bool,
     manual_login: bool,
     config_path: str | Path | None,
@@ -358,7 +360,7 @@ def run_enrichment(
     if config_path is not None:
         config_args.extend(["--config", str(Path(config_path).resolve())])
 
-    args = [*config_args, "--language", language]
+    args = [*config_args, "--language", language, "--max-assets-per-chat", str(max_assets_per_chat)]
     if limit is not None:
         args.extend(["--limit", str(limit)])
     if dry_run:
@@ -414,6 +416,7 @@ def run_everything(
     with_chatgpt: bool,
     chatgpt_limit: int | None,
     chatgpt_language: str,
+    chatgpt_max_assets_per_chat: int,
     chatgpt_dry_run: bool,
     manual_login: bool,
     config_path: str | Path | None,
@@ -434,6 +437,7 @@ def run_everything(
         run_enrichment(
             limit=chatgpt_limit,
             language=chatgpt_language,
+            max_assets_per_chat=chatgpt_max_assets_per_chat,
             dry_run=chatgpt_dry_run,
             manual_login=manual_login,
             config_path=config_path,
@@ -488,6 +492,7 @@ def interactive_menu() -> None:
                 run_enrichment(
                     limit=limit,
                     language=language,
+                    max_assets_per_chat=DEFAULT_MAX_ASSETS_PER_CHAT,
                     dry_run=dry_run,
                     manual_login=manual_login,
                     config_path=None,
@@ -500,6 +505,7 @@ def interactive_menu() -> None:
                 with_chatgpt = prompt_yes_no("Soll nach dem Dataset-Bau auch direkt ChatGPT-Enrichment laufen?", True)
                 chatgpt_limit = None
                 chatgpt_language = "de"
+                chatgpt_max_assets_per_chat = DEFAULT_MAX_ASSETS_PER_CHAT
                 chatgpt_dry_run = False
                 manual_login = True
                 reprocess_existing = False
@@ -522,6 +528,7 @@ def interactive_menu() -> None:
                     with_chatgpt=with_chatgpt,
                     chatgpt_limit=chatgpt_limit,
                     chatgpt_language=chatgpt_language,
+                    chatgpt_max_assets_per_chat=chatgpt_max_assets_per_chat,
                     chatgpt_dry_run=chatgpt_dry_run,
                     manual_login=manual_login,
                     config_path=None,
@@ -555,6 +562,12 @@ def parse_args() -> argparse.Namespace:
     enrich_parser = subparsers.add_parser("enrich", help="Asset-Beschreibungen mit ChatGPT anreichern.")
     enrich_parser.add_argument("--limit", type=int, default=None, help="Maximale Anzahl an Assets. Standard: alle.")
     enrich_parser.add_argument("--language", choices=["de", "en"], default="de", help="Zielsprache fuer die Beschreibungen.")
+    enrich_parser.add_argument(
+        "--max-assets-per-chat",
+        type=int,
+        default=DEFAULT_MAX_ASSETS_PER_CHAT,
+        help="Wie viele Assets pro ChatGPT-Chat verarbeitet werden, bevor ein neuer Chat startet. 0 = ein Chat fuer den ganzen Lauf.",
+    )
     enrich_parser.add_argument("--dry-run", action="store_true", help="Browserlauf ohne Zurueckschreiben der JSON-Dateien.")
     enrich_parser.add_argument(
         "--manual-login",
@@ -581,6 +594,12 @@ def parse_args() -> argparse.Namespace:
     all_parser.add_argument("--with-chatgpt", action="store_true", help="Nach dem Dataset-Bau auch ChatGPT-Enrichment ausfuehren.")
     all_parser.add_argument("--chatgpt-limit", type=int, default=None, help="Maximale Anzahl an Assets fuer das ChatGPT-Enrichment.")
     all_parser.add_argument("--chatgpt-language", choices=["de", "en"], default="de", help="Zielsprache fuer das ChatGPT-Enrichment.")
+    all_parser.add_argument(
+        "--chatgpt-max-assets-per-chat",
+        type=int,
+        default=DEFAULT_MAX_ASSETS_PER_CHAT,
+        help="Wie viele Assets pro ChatGPT-Chat verarbeitet werden, bevor ein neuer Chat startet. 0 = ein Chat fuer den ganzen Lauf.",
+    )
     all_parser.add_argument("--chatgpt-dry-run", action="store_true", help="ChatGPT-Enrichment ohne Datei-Updates.")
     all_parser.add_argument(
         "--manual-login",
@@ -631,6 +650,7 @@ def main() -> None:
         run_enrichment(
             limit=args.limit,
             language=args.language,
+            max_assets_per_chat=args.max_assets_per_chat,
             dry_run=args.dry_run,
             manual_login=args.manual_login,
             config_path=args.config,
@@ -648,6 +668,7 @@ def main() -> None:
             with_chatgpt=args.with_chatgpt,
             chatgpt_limit=args.chatgpt_limit,
             chatgpt_language=args.chatgpt_language,
+            chatgpt_max_assets_per_chat=args.chatgpt_max_assets_per_chat,
             chatgpt_dry_run=args.chatgpt_dry_run,
             manual_login=args.manual_login,
             config_path=args.config,
