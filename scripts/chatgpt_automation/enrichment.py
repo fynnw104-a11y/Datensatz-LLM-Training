@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
@@ -133,6 +134,29 @@ def _fallback_string_list(preferred: list[str], existing_value: object) -> list[
     return preserved
 
 
+def _unique_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique_values: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        unique_values.append(value)
+    return unique_values
+
+
+def _ascii_fold(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", repair_common_mojibake(value))
+    return normalized.encode("ascii", "ignore").decode("ascii")
+
+
+def _has_ocr_encoding_artifacts(text: object) -> bool:
+    value = str(text or "")
+    if any(marker in value for marker in ("\ufffd", "Ã", "Â", "â€", "Ãƒ", "Ã‚", "Ã¢â‚¬", "Ã¯Â¿Â½")):
+        return True
+    return any(0x80 <= ord(character) <= 0x9F for character in value)
+
+
 def _clean_ocr_lines(text: object) -> list[str]:
     if not isinstance(text, str):
         return []
@@ -205,6 +229,111 @@ def _coerce_visible_text(candidate: str, annotation: dict[str, Any]) -> str:
         return normalized_candidate
     fallback = _fallback_visible_text(annotation)
     return fallback or normalized_candidate
+
+
+def _build_crop_clean_text_base(annotation: dict[str, Any]) -> list[str]:
+    lines: list[str] = [f"Asset type: {annotation.get('asset_type', 'unknown')}"]
+    primary_symbol = annotation.get("primary_symbol")
+    instrument_name = annotation.get("instrument_name")
+    venue = annotation.get("venue")
+    timeframes = annotation.get("timeframes")
+
+    if primary_symbol:
+        lines.append(f"Instrument: {primary_symbol}")
+    if instrument_name and instrument_name != primary_symbol:
+        lines.append(f"Instrument label: {instrument_name}")
+    if venue:
+        lines.append(f"Venue: {venue}")
+    if isinstance(timeframes, list) and timeframes:
+        lines.append("Timeframes: " + ", ".join(str(item) for item in timeframes if str(item).strip()))
+    return lines
+
+
+def _refresh_visible_in_crop_clean_text(existing_clean_text: object, annotation: dict[str, Any], visible_text: str) -> str:
+    if isinstance(existing_clean_text, str) and existing_clean_text.strip():
+        lines = [line.strip() for line in existing_clean_text.splitlines() if line.strip()]
+    else:
+        lines = _build_crop_clean_text_base(annotation)
+
+    retained_lines = [line for line in lines if not line.lower().startswith("visible labels:")]
+    normalized_visible_text = visible_text.strip()
+    if normalized_visible_text:
+        retained_lines.append(f"Visible labels: {normalized_visible_text}")
+    return "\n".join(retained_lines).strip()
+
+
+def _llm_reports_uncertainty(limitations: list[str]) -> bool:
+    uncertainty_markers = (
+        "unclear",
+        "unreadable",
+        "illegible",
+        "cropped",
+        "difficult to verify",
+        "inaccurate",
+        "approximate",
+        "partially",
+    )
+    return any(any(marker in item.lower() for marker in uncertainty_markers) for item in limitations)
+
+
+def _build_enrichment_review_reasons(annotation: dict[str, Any], description: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    labels = annotation.get("labels", {})
+    if isinstance(labels, dict) and labels.get("text_density") == "low":
+        reasons.append("low_text_density")
+
+    page_type_confidence = annotation.get("page_type_confidence")
+    if isinstance(page_type_confidence, (int, float)) and float(page_type_confidence) < 0.6:
+        reasons.append("low_page_type_confidence")
+
+    if _has_ocr_encoding_artifacts(annotation.get("ocr_text")):
+        reasons.append("ocr_encoding_artifacts")
+    if not annotation.get("primary_symbol"):
+        reasons.append("missing_primary_symbol")
+    if not annotation.get("timeframes"):
+        reasons.append("missing_timeframe")
+
+    confidence = str(description.get("confidence") or "").strip().lower()
+    if confidence in {"medium", "low"}:
+        reasons.append(f"llm_confidence_{confidence}")
+    if _llm_reports_uncertainty(description.get("limitations", [])):
+        reasons.append("llm_reported_uncertainty")
+
+    if annotation.get("review_required"):
+        reasons.insert(0, "auto_review_flag")
+    return _unique_preserving_order(reasons)
+
+
+def _infer_enrichment_annotation_quality(annotation: dict[str, Any], description: dict[str, Any]) -> str:
+    score = 0
+    if annotation.get("primary_symbol"):
+        score += 1
+    if annotation.get("timeframes"):
+        score += 1
+    if annotation.get("venue"):
+        score += 1
+    if description.get("visible_text"):
+        score += 1
+
+    confidence = str(description.get("confidence") or "").strip().lower()
+    if confidence == "high":
+        score += 1
+    elif confidence == "low":
+        score -= 1
+
+    page_type_confidence = annotation.get("page_type_confidence")
+    if isinstance(page_type_confidence, (int, float)) and float(page_type_confidence) < 0.6:
+        score -= 1
+    if _has_ocr_encoding_artifacts(annotation.get("ocr_text")):
+        score -= 1
+    if _llm_reports_uncertainty(description.get("limitations", [])):
+        score -= 1
+
+    if score >= 4:
+        return "high"
+    if score >= 2:
+        return "medium"
+    return "low"
 
 
 def build_enriched_clean_text(description: dict[str, Any], annotation: dict[str, Any]) -> str:
@@ -313,10 +442,12 @@ def apply_asset_llm_enrichment(
         ),
     }
     clean_text = build_enriched_clean_text(merged_description, updated)
+    top_level_summary = _first_non_empty(visual_summary, short_caption)
+    top_level_description = _first_non_empty(context_summary, visual_summary, short_caption)
 
     updated["caption"] = short_caption
-    updated["summary"] = short_caption
-    updated["description"] = context_summary
+    updated["summary"] = top_level_summary
+    updated["description"] = top_level_description
     if clean_text:
         updated["clean_text"] = clean_text
 
@@ -330,11 +461,44 @@ def apply_asset_llm_enrichment(
     description_block["limitations"] = merged_description["limitations"]
     target_json["description"] = description_block
 
+    observed = deepcopy(target_json.get("observed", {}))
+    if isinstance(observed, dict):
+        visible_in_crop = deepcopy(observed.get("visible_in_crop", {}))
+        if isinstance(visible_in_crop, dict):
+            refreshed_crop_clean_text = _refresh_visible_in_crop_clean_text(
+                visible_in_crop.get("clean_text"),
+                updated,
+                merged_description["visible_text"],
+            )
+            if refreshed_crop_clean_text:
+                visible_in_crop["clean_text"] = refreshed_crop_clean_text
+            observed["visible_in_crop"] = visible_in_crop
+            target_json["observed"] = observed
+
     provenance = deepcopy(target_json.get("provenance", {}))
     provenance["extraction_methods"] = _merge_extraction_methods(
         list(provenance.get("extraction_methods", [])),
         "chatgpt_browser_llm",
     )
+    review_reasons = _build_enrichment_review_reasons(updated, merged_description)
+    review_required = bool(review_reasons)
+    updated["review_required"] = review_required
+
+    quality = deepcopy(provenance.get("quality", {}))
+    if not isinstance(quality, dict):
+        quality = {}
+    quality["annotation_quality"] = _infer_enrichment_annotation_quality(updated, merged_description)
+    page_type_confidence = updated.get("page_type_confidence")
+    if isinstance(page_type_confidence, (int, float)):
+        quality["page_type_confidence"] = float(page_type_confidence)
+    provenance["quality"] = quality
+
+    review = deepcopy(provenance.get("review", {}))
+    if not isinstance(review, dict):
+        review = {}
+    review["required"] = review_required
+    review["reasons"] = review_reasons
+    provenance["review"] = review
     target_json["provenance"] = provenance
     updated["target_json"] = target_json
 

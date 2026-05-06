@@ -252,6 +252,7 @@ class EnrichmentTests(unittest.TestCase):
             "summary": "old summary",
             "description": "old description",
             "clean_text": "old clean text",
+            "page_type_confidence": 0.8,
             "extraction_methods": ["ocr"],
             "primary_symbol": "BTCUSDT",
             "timeframes": ["H1"],
@@ -293,10 +294,17 @@ class EnrichmentTests(unittest.TestCase):
             conversation_url="https://chatgpt.com/c/test",
         )
         self.assertEqual(updated["caption"], "BTCUSDT H1 candlestick chart")
+        self.assertEqual(updated["summary"], "A trading chart with candles and a price scale.")
+        self.assertEqual(updated["description"], "A BTCUSDT H1 chart with visible candles and price labels.")
         self.assertIn("chatgpt_browser_llm", updated["extraction_methods"])
         self.assertEqual(updated["target_json"]["description"]["key_visual_elements"], ["candlesticks", "price_scale"])
         self.assertIn("Short caption:", updated["clean_text"])
-        self.assertEqual(updated["target_json"]["observed"]["visible_in_crop"]["clean_text"], "old clean text")
+        self.assertEqual(
+            updated["target_json"]["observed"]["visible_in_crop"]["clean_text"],
+            "old clean text\nVisible labels: BTCUSDT 1h",
+        )
+        self.assertFalse(updated["review_required"])
+        self.assertEqual(updated["target_json"]["provenance"]["quality"]["annotation_quality"], "high")
         self.assertEqual(updated["llm_enrichment"]["model_slug"], "gpt-test")
 
     def test_apply_asset_llm_enrichment_replaces_fragmented_visible_text_with_literal_ocr_line(self) -> None:
@@ -357,6 +365,10 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(
             updated["llm_enrichment"]["structured_response"]["visible_text"],
             "Bitcoin / TetherUS, 1h, BINANCE",
+        )
+        self.assertEqual(
+            updated["target_json"]["observed"]["visible_in_crop"]["clean_text"],
+            "old clean text\nVisible labels: Bitcoin / TetherUS, 1h, BINANCE",
         )
 
     def test_build_multimodal_description_prompt_forbids_joined_visible_text_fragments(self) -> None:
@@ -469,6 +481,71 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(updated["target_json"]["description"]["context_augmented_summary"], "legacy target description")
         self.assertEqual(updated["target_json"]["description"]["visual_summary"], "")
         self.assertEqual(updated["target_json"]["observed"]["visible_in_crop"]["clean_text"], "legacy crop clean text")
+
+    def test_apply_asset_llm_enrichment_marks_review_required_for_low_confidence_and_noisy_ocr(self) -> None:
+        annotation = {
+            "caption": "old caption",
+            "summary": "old summary",
+            "description": "old description",
+            "clean_text": "old clean text",
+            "page_type_confidence": 0.5,
+            "ocr_text": "Â® noisy header\nBitcoin / TetherUS, 1h, BINANCE",
+            "extraction_methods": ["ocr"],
+            "primary_symbol": "BTCUSDT",
+            "instrument_name": "Bitcoin / TetherUS",
+            "timeframes": ["H1"],
+            "venue": "BINANCE",
+            "labels": {"text_density": "medium"},
+            "target_json": {
+                "description": {
+                    "short_caption": "old caption",
+                    "visual_summary": "old visual summary",
+                    "context_augmented_summary": "old context summary",
+                    "key_visual_elements": [],
+                    "limitations": [],
+                },
+                "observed": {
+                    "visible_in_crop": {
+                        "clean_text": "crop text",
+                    }
+                },
+                "provenance": {
+                    "extraction_methods": ["ocr"],
+                    "quality": {
+                        "annotation_quality": "high",
+                        "page_type_confidence": 0.5,
+                    },
+                    "review": {
+                        "required": False,
+                        "reasons": [],
+                    },
+                },
+            },
+        }
+
+        updated = apply_asset_llm_enrichment(
+            annotation=annotation,
+            response_payload={
+                "short_caption": "BTCUSDT H1 chart",
+                "visual_summary": "A chart with candles and overlays.",
+                "context_augmented_summary": "A BTCUSDT H1 chart with bearish movement.",
+                "limitations": ["small text is partially unreadable"],
+                "visible_text": "Bitcoin / TetherUS, 1h, BINANCE",
+                "confidence": "high",
+            },
+            raw_response_text='{"short_caption":"BTCUSDT H1 chart"}',
+            prompt="describe image",
+            language="en",
+            model_slug="gpt-test",
+            conversation_url="https://chatgpt.com/c/test",
+        )
+
+        self.assertTrue(updated["review_required"])
+        self.assertEqual(updated["target_json"]["provenance"]["quality"]["annotation_quality"], "medium")
+        self.assertEqual(
+            updated["target_json"]["provenance"]["review"]["reasons"],
+            ["low_page_type_confidence", "ocr_encoding_artifacts", "llm_reported_uncertainty"],
+        )
 
 
 if __name__ == "__main__":
