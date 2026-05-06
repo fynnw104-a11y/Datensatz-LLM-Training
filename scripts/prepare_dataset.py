@@ -140,7 +140,7 @@ CONCEPT_KEYWORDS = {
     "mean_reversion": ["mean reversion", "reversion", "overextended"],
     "market_structure": ["higher high", "lower low", "bos", "choch", "market structure"],
     "support_resistance": ["support", "resistance", "s/r", "level"],
-    "risk_management": ["risk", "risk management", "position size", "rr", "r:r"],
+    "risk_management": ["risk", "risk management", "position size", "risk reward", "risk/reward", "r:r", "r/r"],
     "stop_loss": ["stop loss", "sl", "stop"],
     "take_profit": ["take profit", "tp", "target"],
     "liquidity": ["liquidity", "sweep", "stop hunt"],
@@ -967,12 +967,22 @@ def derive_asset_market_fields(context_text: str, ocr_text: str, fallback_text: 
     }
 
 
+def keyword_matches_normalized_text(normalized_text: str, keyword: str) -> bool:
+    normalized_keyword = ascii_fold(keyword).lower().strip()
+    if not normalized_text or not normalized_keyword:
+        return False
+    if not re.search(r"[a-z0-9]", normalized_keyword):
+        return normalized_keyword in normalized_text
+    pattern = rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])"
+    return bool(re.search(pattern, normalized_text))
+
+
 def extract_keyword_labels(text: str, keyword_map: dict[str, list[str]]) -> list[str]:
-    lowered = text.lower()
+    lowered = ascii_fold(text).lower()
     labels = [
         label
         for label, keywords in keyword_map.items()
-        if any(keyword in lowered for keyword in keywords)
+        if any(keyword_matches_normalized_text(lowered, keyword) for keyword in keywords)
     ]
     return sorted(labels)
 
@@ -1170,6 +1180,20 @@ def build_page_training_target(annotation: dict[str, Any]) -> dict[str, Any]:
         "trading_domains": annotation["trading_domains"],
         "labels": annotation["labels"],
     }
+
+
+def merge_page_market_fields(
+    symbols: list[str],
+    timeframes: list[str],
+    asset_annotations: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    merged_symbols = unique_preserving_order(
+        [*symbols, *(symbol for annotation in asset_annotations for symbol in annotation.get("symbols", []))]
+    )
+    merged_timeframes = unique_preserving_order(
+        [*timeframes, *(timeframe for annotation in asset_annotations for timeframe in annotation.get("timeframes", []))]
+    )
+    return merged_symbols, merged_timeframes
 
 
 def to_bbox(rect: Any) -> BBox:
@@ -2278,6 +2302,49 @@ def build_review_reasons(annotation: dict[str, Any]) -> list[str]:
     return unique_preserving_order(reasons)
 
 
+def should_review_asset_annotation(
+    combined_text: str,
+    labels: dict[str, Any],
+    asset_type: str,
+    page_type_confidence: float,
+    asset_source: str,
+    ocr_text: str,
+    primary_symbol: str | None,
+    timeframes: list[str],
+) -> bool:
+    return (
+        not combined_text
+        or labels["text_density"] == "low"
+        or asset_type == "unknown"
+        or page_type_confidence < 0.45
+        or "text_gap" in asset_source
+        or has_ocr_encoding_artifacts(ocr_text)
+        or not primary_symbol
+        or not timeframes
+    )
+
+
+def should_review_page_annotation(
+    combined_text: str,
+    labels: dict[str, Any],
+    page_type: str,
+    page_type_confidence: float,
+    ocr_text: str,
+    symbols: list[str],
+    timeframes: list[str],
+    asset_count: int,
+) -> bool:
+    return (
+        not combined_text
+        or labels["text_density"] == "low"
+        or page_type == "unknown"
+        or page_type_confidence < 0.45
+        or has_ocr_encoding_artifacts(ocr_text)
+        or not timeframes
+        or (asset_count > 0 and not symbols)
+    )
+
+
 def infer_annotation_quality(annotation: dict[str, Any], review_reasons: list[str]) -> str:
     score = 0
     if annotation["primary_symbol"]:
@@ -2547,6 +2614,7 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                 ]
 
                 asset_ids: list[str] = []
+                page_asset_annotations: list[dict[str, Any]] = []
                 for asset_index, asset_candidate in enumerate(asset_candidates, start=1):
                     asset_bbox = expanded_asset_bboxes[asset_index - 1]
                     asset_id = stable_id("pdf_asset", source_pdf, str(page_number), str(asset_index))
@@ -2660,12 +2728,15 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                         page_bbox=page_bbox,
                         paired_text_blocks=len(nearby_text_blocks),
                     )
-                    review_required = (
-                        not combined_text
-                        or labels["text_density"] == "low"
-                        or asset_type == "unknown"
-                        or page_type_confidence < 0.45
-                        or asset_candidate.source == "text_gap"
+                    review_required = should_review_asset_annotation(
+                        combined_text=combined_text,
+                        labels=labels,
+                        asset_type=asset_type,
+                        page_type_confidence=page_type_confidence,
+                        asset_source=asset_candidate.source,
+                        ocr_text=polished_ocr_text,
+                        primary_symbol=primary_symbol,
+                        timeframes=timeframes,
                     )
 
                     asset_annotation = {
@@ -2710,6 +2781,7 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                     asset_annotation["target_json"] = build_asset_training_target(asset_annotation)
                     write_json(asset_annotation_path, asset_annotation)
                     asset_annotations.append(asset_annotation)
+                    page_asset_annotations.append(asset_annotation)
                     asset_ids.append(asset_id)
                     asset_count += 1
                     for source_name in asset_candidate.source.split("+"):
@@ -2723,17 +2795,22 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
 
                 symbols = extract_symbols(combined_text)
                 timeframes = extract_timeframes(combined_text)
+                symbols, timeframes = merge_page_market_fields(symbols, timeframes, page_asset_annotations)
                 trading_concepts = extract_keyword_labels(combined_text, CONCEPT_KEYWORDS)
                 trading_domains = extract_keyword_labels(combined_text, DOMAIN_KEYWORDS)
                 page_type, page_type_confidence = infer_page_type(combined_text, symbols, timeframes)
                 labels = build_page_labels(page_type, combined_text, embedded_text, ocr_text, symbols, timeframes)
                 summary = build_auto_summary(page_type, symbols, timeframes, trading_concepts, combined_text)
 
-                review_required = (
-                    not combined_text
-                    or labels["text_density"] == "low"
-                    or page_type == "unknown"
-                    or page_type_confidence < 0.45
+                review_required = should_review_page_annotation(
+                    combined_text=combined_text,
+                    labels=labels,
+                    page_type=page_type,
+                    page_type_confidence=page_type_confidence,
+                    ocr_text=ocr_text,
+                    symbols=symbols,
+                    timeframes=timeframes,
+                    asset_count=len(asset_ids),
                 )
 
                 page_annotation = {

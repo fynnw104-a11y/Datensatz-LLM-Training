@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import sys
-import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,8 +11,14 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chatgpt_automation.batch import extract_json_fragment, load_jobs, parse_json_response
-from chatgpt_automation.enrichment import apply_asset_llm_enrichment, normalize_llm_description
+from chatgpt_automation.batch import BatchJob, extract_json_fragment, load_jobs, parse_json_response, run_batch_jobs
+from chatgpt_automation.client import ChatGPTResponse
+from chatgpt_automation.enrichment import (
+    apply_asset_llm_enrichment,
+    build_multimodal_description_prompt,
+    normalize_llm_description,
+)
+from enrich_multimodal_descriptions import collect_annotation_jobs
 
 
 class BatchParsingTests(unittest.TestCase):
@@ -25,9 +32,33 @@ class BatchParsingTests(unittest.TestCase):
         self.assertIsInstance(payload, dict)
         self.assertEqual(payload["short_caption"], "BTC chart")
 
+    def test_extract_json_fragment_ignores_braces_inside_strings(self) -> None:
+        text = 'Result:\n{"visual_summary":"Highlighted zone {A} near top","confidence":"high"}'
+        self.assertEqual(
+            extract_json_fragment(text),
+            '{"visual_summary":"Highlighted zone {A} near top","confidence":"high"}',
+        )
+
+    def test_parse_json_response_repairs_unescaped_inner_quotes(self) -> None:
+        text = (
+            '{"visual_summary":"A chart with arrows labeled "H1 BOS" indicating structure breaks.",'
+            '"confidence":"high"}'
+        )
+
+        payload = parse_json_response(text)
+
+        self.assertIsInstance(payload, dict)
+        self.assertEqual(
+            payload["visual_summary"],
+            'A chart with arrows labeled "H1 BOS" indicating structure breaks.',
+        )
+        self.assertEqual(payload["confidence"], "high")
+
     def test_load_jobs_defaults_to_same_chat(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            jobs_path = Path(temp_dir) / "jobs.jsonl"
+        temp_root = ROOT / ".tmp"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        jobs_path = temp_root / f"test_load_jobs_{uuid.uuid4().hex}.jsonl"
+        try:
             jobs_path.write_text(
                 '{"id":"job-1","prompt":"Describe the chart.","attachments":[]}\n'
                 '{"id":"job-2","prompt":"Use a new chat.","attachments":[],"new_chat":true}\n',
@@ -35,10 +66,108 @@ class BatchParsingTests(unittest.TestCase):
             )
 
             jobs = load_jobs(jobs_path)
+        finally:
+            if jobs_path.exists():
+                jobs_path.unlink()
 
         self.assertEqual(len(jobs), 2)
         self.assertFalse(jobs[0].new_chat)
         self.assertTrue(jobs[1].new_chat)
+
+    def test_run_batch_jobs_marks_invalid_json_as_error(self) -> None:
+        class StubClient:
+            def run_prompt(
+                self,
+                prompt: str,
+                attachments: list[Path],
+                new_chat: bool,
+                allow_manual_login: bool,
+            ) -> ChatGPTResponse:
+                return ChatGPTResponse(
+                    message_id="msg-1",
+                    model_slug="gpt-test",
+                    text="This is not valid JSON.",
+                    url="https://chatgpt.com/c/test",
+                )
+
+        rows = run_batch_jobs(
+            client=StubClient(),
+            jobs=[
+                BatchJob(
+                    job_id="job-1",
+                    prompt="Describe the chart.",
+                    attachments=(),
+                    metadata={},
+                )
+            ],
+        )
+
+        self.assertEqual(rows[0]["status"], "error")
+        self.assertEqual(rows[0]["error"], "ChatGPT response did not contain valid JSON.")
+        self.assertIsNone(rows[0]["assistant_json"])
+
+
+class EnrichmentJobTests(unittest.TestCase):
+    def test_collect_annotation_jobs_uses_fresh_chat_per_asset_by_default(self) -> None:
+        temp_root = ROOT / ".tmp" / f"test_collect_annotation_jobs_{uuid.uuid4().hex}"
+        annotation_dir = temp_root / "annotations" / "03-10" / "assets"
+        image_dir = temp_root / "images" / "03-10" / "assets"
+        annotation_dir.mkdir(parents=True, exist_ok=True)
+        image_dir.mkdir(parents=True, exist_ok=True)
+
+        annotation_path = annotation_dir / "page_0001_asset_01.json"
+        image_path = image_dir / "page_0001_asset_01.png"
+        image_path.write_bytes(b"fake-image")
+        annotation_path.write_text(
+            json.dumps(
+                {
+                    "id": "asset-1",
+                    "pair_type": "visual_asset",
+                    "image_path": str(image_path.relative_to(ROOT)).replace("\\", "/"),
+                    "asset_type": "chart",
+                    "page_type": "chart",
+                    "summary": "BTCUSDT H1 chart",
+                    "description": "Trading chart for BTCUSDT on H1.",
+                    "context_heading": "Im H1 waren wir heute Bearisch",
+                    "context_text": "Im H1 waren wir heute Bearisch",
+                    "ocr_text": "Bitcoin / TetherUS, 1h, BINANCE",
+                    "combined_text": "Im H1 waren wir heute Bearisch\nBitcoin / TetherUS, 1h, BINANCE",
+                    "primary_symbol": "BTCUSDT",
+                    "instrument_name": "Bitcoin / TetherUS",
+                    "venue": "BINANCE",
+                    "timeframes": ["H1"],
+                    "bias": "bearish",
+                    "direction": None,
+                    "setup_status": None,
+                    "trade_levels": {},
+                    "trading_concepts": [],
+                    "labels": {"contains_symbol": True, "contains_timeframe": True},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        try:
+            jobs, context_by_id = collect_annotation_jobs(
+                glob_pattern=str((temp_root / "annotations" / "*" / "assets" / "*.json").relative_to(ROOT)).replace("\\", "/"),
+                language="en",
+                skip_existing_llm=True,
+                limit=None,
+                new_chat_per_asset=True,
+            )
+        finally:
+            if annotation_path.exists():
+                annotation_path.unlink()
+            if image_path.exists():
+                image_path.unlink()
+            for path in [annotation_dir, image_dir, temp_root / "annotations" / "03-10", temp_root / "images" / "03-10", temp_root / "annotations", temp_root / "images", temp_root]:
+                if path.exists():
+                    path.rmdir()
+
+        self.assertEqual(len(jobs), 1)
+        self.assertTrue(jobs[0].new_chat)
+        self.assertIn("asset-1", context_by_id)
 
 
 class EnrichmentTests(unittest.TestCase):
@@ -118,6 +247,93 @@ class EnrichmentTests(unittest.TestCase):
         self.assertIn("Short caption:", updated["clean_text"])
         self.assertEqual(updated["target_json"]["observed"]["visible_in_crop"]["clean_text"], "old clean text")
         self.assertEqual(updated["llm_enrichment"]["model_slug"], "gpt-test")
+
+    def test_apply_asset_llm_enrichment_replaces_fragmented_visible_text_with_literal_ocr_line(self) -> None:
+        annotation = {
+            "caption": "old caption",
+            "summary": "old summary",
+            "description": "old description",
+            "clean_text": "old clean text",
+            "extraction_methods": ["ocr"],
+            "primary_symbol": "BTCUSDT",
+            "instrument_name": "Bitcoin / TetherUS",
+            "timeframes": ["H1"],
+            "venue": "BINANCE",
+            "ocr_text": (
+                "Fynn160k freigegeben fur TradingView.com, Okt 08, 2024 08:36 UTC+2\n"
+                "Bitcoin / TetherUS, 1h, BINANCE\n"
+                "All-In-One Sessions, Weekly, Monday, Previous Highs/Lows"
+            ),
+            "target_json": {
+                "description": {
+                    "short_caption": "old caption",
+                    "visual_summary": "old description",
+                    "context_augmented_summary": "old description",
+                    "key_visual_elements": [],
+                    "limitations": [],
+                },
+                "observed": {
+                    "visible_in_crop": {
+                        "clean_text": "old clean text",
+                    }
+                },
+                "provenance": {
+                    "extraction_methods": ["ocr"],
+                },
+            },
+        }
+
+        updated = apply_asset_llm_enrichment(
+            annotation=annotation,
+            response_payload={
+                "short_caption": "BTCUSDT H1 candlestick chart",
+                "visual_summary": "A trading chart with candles and a price scale.",
+                "context_augmented_summary": "A BTCUSDT H1 chart with visible candles and price labels.",
+                "key_visual_elements": ["candlesticks", "price_scale"],
+                "limitations": ["small_text"],
+                "visible_text": "Bitcoin / TetherUS, 1h, BINANCE ... H1 BOS ... TradingView",
+                "training_tags": ["chart", "candles"],
+                "confidence": "high",
+            },
+            raw_response_text='{"short_caption":"BTCUSDT H1 candlestick chart"}',
+            prompt="describe image",
+            language="en",
+            model_slug="gpt-test",
+            conversation_url="https://chatgpt.com/c/test",
+        )
+
+        self.assertIn("Visible text: Bitcoin / TetherUS, 1h, BINANCE", updated["clean_text"])
+        self.assertEqual(
+            updated["llm_enrichment"]["structured_response"]["visible_text"],
+            "Bitcoin / TetherUS, 1h, BINANCE",
+        )
+
+    def test_build_multimodal_description_prompt_forbids_joined_visible_text_fragments(self) -> None:
+        prompt = build_multimodal_description_prompt(
+            {
+                "id": "asset-1",
+                "asset_type": "chart",
+                "page_type": "chart",
+                "summary": "BTCUSDT H1 chart",
+                "description": "Trading chart for BTCUSDT on H1.",
+                "context_heading": "Im H1 waren wir heute Bearisch",
+                "context_text": "Im H1 waren wir heute Bearisch",
+                "ocr_text": "Bitcoin / TetherUS, 1h, BINANCE",
+                "combined_text": "Im H1 waren wir heute Bearisch\nBitcoin / TetherUS, 1h, BINANCE",
+                "primary_symbol": "BTCUSDT",
+                "instrument_name": "Bitcoin / TetherUS",
+                "venue": "BINANCE",
+                "timeframes": ["H1"],
+                "bias": "bearish",
+                "direction": None,
+                "setup_status": None,
+                "trade_levels": {},
+                "trading_concepts": [],
+                "labels": {"contains_symbol": True, "contains_timeframe": True},
+            }
+        )
+
+        self.assertIn("do not join separate fragments with ellipses", prompt)
 
     def test_apply_asset_llm_enrichment_preserves_existing_visual_summary(self) -> None:
         annotation = {

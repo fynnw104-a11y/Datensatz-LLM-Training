@@ -43,6 +43,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Leave the automation browser open after the run for manual inspection.",
     )
+    parser.add_argument(
+        "--new-chat-per-asset",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Start a fresh ChatGPT conversation for each asset to avoid cross-example bleed.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Run ChatGPT and write result logs, but do not edit JSONs.")
     return parser.parse_args()
 
@@ -60,6 +66,7 @@ def collect_annotation_jobs(
     language: str,
     skip_existing_llm: bool,
     limit: int | None,
+    new_chat_per_asset: bool,
 ) -> tuple[list[BatchJob], dict[str, dict[str, Any]]]:
     jobs: list[BatchJob] = []
     context_by_id: dict[str, dict[str, Any]] = {}
@@ -85,7 +92,7 @@ def collect_annotation_jobs(
                     "annotation_path": str(annotation_path.resolve()),
                     "image_path": str(image_path.resolve()),
                 },
-                new_chat=False,
+                new_chat=new_chat_per_asset,
             )
         )
         context_by_id[annotation_id] = {
@@ -106,6 +113,7 @@ def main() -> None:
         language=args.language,
         skip_existing_llm=args.skip_existing_llm,
         limit=args.limit,
+        new_chat_per_asset=args.new_chat_per_asset,
     )
     if not jobs:
         print("No matching asset annotations found for enrichment.")

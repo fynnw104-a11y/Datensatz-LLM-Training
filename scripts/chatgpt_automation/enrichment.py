@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
@@ -68,6 +69,7 @@ def build_multimodal_description_prompt(annotation: dict[str, Any], language: st
         "- visible chart structure, panels, axes, legend areas, candles, lines, annotations, arrows, highlighted zones\n"
         "- visible symbol, timeframe, venue, labels, indicators, performance metrics, notes\n"
         "- whether the crop looks like a trading chart, a performance panel, or another market-related figure\n"
+        "- for visible_text, copy one short contiguous snippet exactly as seen; do not join separate fragments with ellipses\n"
         "- mention uncertainty explicitly in limitations when text or details are unreadable\n\n"
         "Additional extracted context:\n"
         f"{context_json}"
@@ -129,6 +131,80 @@ def _fallback_string_list(preferred: list[str], existing_value: object) -> list[
         if text:
             preserved.append(text)
     return preserved
+
+
+def _clean_ocr_lines(text: object) -> list[str]:
+    if not isinstance(text, str):
+        return []
+    lines: list[str] = []
+    for raw_line in repair_common_mojibake(text).splitlines():
+        cleaned = normalize_typographic_punctuation(raw_line).strip()
+        cleaned = " ".join(cleaned.split())
+        if cleaned:
+            lines.append(cleaned)
+    return lines
+
+
+def _visible_text_line_score(line: str, annotation: dict[str, Any]) -> int:
+    score = 0
+    upper_line = line.upper()
+    lower_line = line.lower()
+
+    primary_symbol = str(annotation.get("primary_symbol") or "").upper()
+    instrument_name = normalize_typographic_punctuation(str(annotation.get("instrument_name") or "")).lower()
+    venue = str(annotation.get("venue") or "").upper()
+    timeframes = [str(item).upper() for item in annotation.get("timeframes", []) if isinstance(item, str)]
+
+    if primary_symbol and primary_symbol in upper_line:
+        score += 4
+    if instrument_name and any(token in lower_line for token in instrument_name.split() if len(token) >= 4):
+        score += 3
+    if venue and venue in upper_line:
+        score += 2
+    if "/" in line:
+        score += 2
+    if any(timeframe in upper_line for timeframe in timeframes):
+        score += 2
+    if any(
+        timeframe.startswith("H") and timeframe[1:].isdigit() and re.search(rf"\b{re.escape(timeframe[1:])}h\b", lower_line)
+        for timeframe in timeframes
+    ):
+        score += 2
+    if any(
+        timeframe.startswith("M") and timeframe[1:].isdigit() and re.search(rf"\b{re.escape(timeframe[1:])}\b", lower_line)
+        for timeframe in timeframes
+    ):
+        score += 1
+    if "bos" in lower_line:
+        score += 1
+    if "freigegeben" in lower_line:
+        score -= 2
+    if "tradingview.com" in lower_line:
+        score -= 1
+    return score
+
+
+def _fallback_visible_text(annotation: dict[str, Any]) -> str:
+    lines = _clean_ocr_lines(annotation.get("ocr_text"))
+    if not lines:
+        return ""
+
+    ranked_lines = sorted(
+        enumerate(lines),
+        key=lambda item: (-_visible_text_line_score(item[1], annotation), item[0], len(item[1])),
+    )
+    for _index, line in ranked_lines:
+        if len(line) >= 6:
+            return line
+    return lines[0]
+
+
+def _coerce_visible_text(candidate: str, annotation: dict[str, Any]) -> str:
+    normalized_candidate = normalize_typographic_punctuation(repair_common_mojibake(candidate)).strip()
+    if normalized_candidate and "..." not in normalized_candidate and "…" not in normalized_candidate and "\n" not in normalized_candidate:
+        return normalized_candidate
+    fallback = _fallback_visible_text(annotation)
+    return fallback or normalized_candidate
 
 
 def build_enriched_clean_text(description: dict[str, Any], annotation: dict[str, Any]) -> str:
@@ -226,6 +302,7 @@ def apply_asset_llm_enrichment(
         "short_caption": short_caption,
         "visual_summary": visual_summary,
         "context_augmented_summary": context_summary,
+        "visible_text": _coerce_visible_text(description["visible_text"], updated),
         "key_visual_elements": _fallback_string_list(
             description["key_visual_elements"],
             description_block.get("key_visual_elements"),
@@ -271,6 +348,6 @@ def apply_asset_llm_enrichment(
         "conversation_url": conversation_url,
         "prompt_hash": _prompt_hash(prompt),
         "raw_response_text": repair_common_mojibake(raw_response_text),
-        "structured_response": description,
+        "structured_response": merged_description,
     }
     return updated

@@ -150,7 +150,8 @@ python scripts/enrich_multimodal_descriptions.py --limit 10 --language en
 Wirkung:
 
 - jedes Asset-Bild wird mit Kontexttext und OCR an ChatGPT geschickt
-- alle Jobs laufen standardmaessig im gleichen offenen Chat weiter; nur explizit gesetztes `"new_chat": true` startet einen frischen Verlauf
+- der Multimodal-Enricher startet standardmaessig fuer jedes Asset einen frischen Chat, damit kein Verlauf zwischen Beispielen hineinblutet
+- nur mit `--no-new-chat-per-asset` laesst du mehrere Assets absichtlich im selben Chat weiterlaufen
 - die Antwort wird als strukturierte `llm_enrichment`-Sektion gespeichert
 - `caption`, `summary`, `description`, `clean_text` und die `target_json.description`-Felder werden mit der LLM-Beschreibung aktualisiert
 - `target_json.observed.visible_in_crop` bleibt crop-grounded und wird nicht mit Kontext- oder LLM-Zusatztext ueberschrieben
@@ -166,6 +167,8 @@ Nutzliche Optionen:
   Erzeugt deutsche Beschreibungen statt englischer.
 - `--no-skip-existing-llm`
   Erzwingt eine Neubeschreibung bereits angereicherter Assets.
+- `--no-new-chat-per-asset`
+  Reused absichtlich denselben Chat fuer mehrere Assets; nur fuer manuelle Experimente sinnvoll.
 - `--keep-browser-open`
   Laesst das Automations-Browserfenster nach dem Lauf offen, damit du die Session und die letzte ChatGPT-Antwort direkt pruefen kannst.
 

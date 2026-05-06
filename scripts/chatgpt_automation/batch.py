@@ -46,6 +46,37 @@ def load_jobs(path: Path) -> list[BatchJob]:
     return jobs
 
 
+def _extract_balanced_fragment(text: str, opening: str, closing: str) -> str | None:
+    start = text.find(opening)
+    while start >= 0:
+        depth = 0
+        in_string = False
+        escape_next = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escape_next:
+                    escape_next = False
+                elif char == "\\":
+                    escape_next = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+                continue
+            if char == opening:
+                depth += 1
+            elif char == closing:
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+
+        start = text.find(opening, start + 1)
+    return None
+
+
 def extract_json_fragment(text: str) -> str | None:
     stripped = text.strip()
     if not stripped:
@@ -63,31 +94,75 @@ def extract_json_fragment(text: str) -> str | None:
                 return candidate
 
     for opening, closing in (("{", "}"), ("[", "]")):
-        start = stripped.find(opening)
-        if start < 0:
-            continue
-        depth = 0
-        for index in range(start, len(stripped)):
-            char = stripped[index]
-            if char == opening:
-                depth += 1
-            elif char == closing:
-                depth -= 1
-                if depth == 0:
-                    return stripped[start : index + 1]
+        candidate = _extract_balanced_fragment(stripped, opening, closing)
+        if candidate is not None:
+            return candidate
     return None
+
+
+def _next_non_whitespace_char(text: str, start: int) -> str | None:
+    for index in range(start, len(text)):
+        if not text[index].isspace():
+            return text[index]
+    return None
+
+
+def _repair_common_json_issues(text: str) -> str:
+    repaired: list[str] = []
+    in_string = False
+    escape_next = False
+
+    for index, char in enumerate(text):
+        if in_string:
+            if escape_next:
+                repaired.append(char)
+                escape_next = False
+                continue
+            if char == "\\":
+                repaired.append(char)
+                escape_next = True
+                continue
+            if char == "\r":
+                continue
+            if char == "\n":
+                repaired.append("\\n")
+                continue
+            if char == '"':
+                next_char = _next_non_whitespace_char(text, index + 1)
+                if next_char is None or next_char in {":", ",", "}", "]"}:
+                    in_string = False
+                    repaired.append(char)
+                else:
+                    repaired.append('\\"')
+                continue
+
+            repaired.append(char)
+            continue
+
+        if char == '"':
+            in_string = True
+        repaired.append(char)
+
+    return "".join(repaired)
 
 
 def parse_json_response(text: str) -> dict[str, Any] | list[Any] | None:
     candidate = extract_json_fragment(text)
     if not candidate:
         return None
-    try:
-        payload = json.loads(candidate)
-    except json.JSONDecodeError:
-        return None
-    if isinstance(payload, (dict, list)):
-        return payload
+
+    attempts = [candidate]
+    repaired_candidate = _repair_common_json_issues(candidate)
+    if repaired_candidate != candidate:
+        attempts.append(repaired_candidate)
+
+    for attempt in attempts:
+        try:
+            payload = json.loads(attempt)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, (dict, list)):
+            return payload
     return None
 
 
@@ -125,6 +200,9 @@ def run_batch_jobs(
             assistant_json = parse_json_response(response.text)
             conversation_url = response.url
             model_slug = response.model_slug
+            if assistant_json is None:
+                status = "error"
+                error = "ChatGPT response did not contain valid JSON."
         except Exception as exc:
             status = "error"
             error = str(exc)

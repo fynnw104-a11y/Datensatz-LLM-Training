@@ -7,10 +7,23 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from prepare_dataset import build_asset_training_target, derive_asset_market_fields, extract_pair_symbols
+from prepare_dataset import (
+    CONCEPT_KEYWORDS,
+    build_asset_training_target,
+    derive_asset_market_fields,
+    extract_keyword_labels,
+    extract_pair_symbols,
+    merge_page_market_fields,
+    should_review_page_annotation,
+)
 
 
 class PrepareDatasetTests(unittest.TestCase):
+    def test_extract_keyword_labels_ignores_rr_ocr_artifact(self) -> None:
+        text = "59.500,00\n59.2000\nRR --------\n0 12:00 1:00 2 05:00"
+
+        self.assertNotIn("risk_management", extract_keyword_labels(text, CONCEPT_KEYWORDS))
+
     def test_extract_pair_symbols_ignores_multiline_noise_before_visible_pair(self) -> None:
         text = (
             "Im M15 gab es heute kein Setup\n"
@@ -258,6 +271,33 @@ class PrepareDatasetTests(unittest.TestCase):
         self.assertEqual(target["observed"]["visible_in_crop"]["normalized_fields"]["primary_symbol"], "BTCUSDT")
         self.assertEqual(target["observed"]["visible_in_crop"]["normalized_fields"]["symbols"], ["BTCUSDT"])
         self.assertEqual(target["provenance"]["field_sources"]["primary_symbol"], "ocr_normalization")
+
+    def test_merge_page_market_fields_uses_asset_symbols_when_page_ocr_misses_symbol(self) -> None:
+        symbols, timeframes = merge_page_market_fields(
+            symbols=[],
+            timeframes=["H1"],
+            asset_annotations=[
+                {"symbols": ["BTCUSDT"], "timeframes": ["H1"]},
+                {"symbols": ["BTCUSDT"], "timeframes": ["M15"]},
+            ],
+        )
+
+        self.assertEqual(symbols, ["BTCUSDT"])
+        self.assertEqual(timeframes, ["H1", "M15"])
+
+    def test_should_review_page_annotation_when_assets_exist_but_symbol_is_missing(self) -> None:
+        self.assertTrue(
+            should_review_page_annotation(
+                combined_text="Im H1 waren wir heute Bearisch\nIm M15 gab es heute kein Setup",
+                labels={"text_density": "medium"},
+                page_type="chart",
+                page_type_confidence=0.5,
+                ocr_text="03.10.2024\nRR --------",
+                symbols=[],
+                timeframes=["H1", "M15"],
+                asset_count=2,
+            )
+        )
 
 
 if __name__ == "__main__":
