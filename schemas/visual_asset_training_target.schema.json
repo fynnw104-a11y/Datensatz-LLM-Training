@@ -1,0 +1,447 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trading Visual Asset Training Target",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_type",
+    "description",
+    "observed",
+    "derived",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "3.0"
+    },
+    "task_type": {
+      "type": "string",
+      "const": "image_to_structured_annotation"
+    },
+    "description": {
+      "type": "object",
+      "required": [
+        "short_caption",
+        "visual_summary",
+        "context_augmented_summary",
+        "key_visual_elements",
+        "limitations"
+      ],
+      "properties": {
+        "short_caption": {
+          "type": "string"
+        },
+        "visual_summary": {
+          "type": "string"
+        },
+        "context_augmented_summary": {
+          "type": "string"
+        },
+        "key_visual_elements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "observed": {
+      "type": "object",
+      "required": [
+        "visible_in_crop",
+        "paired_context"
+      ],
+      "properties": {
+        "visible_in_crop": {
+          "type": "object",
+          "required": [
+            "ocr_text",
+            "clean_text",
+            "normalized_fields",
+            "trade_levels",
+            "visual_elements"
+          ],
+          "properties": {
+            "ocr_text": {
+              "type": "string"
+            },
+            "clean_text": {
+              "type": "string"
+            },
+            "normalized_fields": {
+              "type": "object",
+              "required": [
+                "primary_symbol",
+                "instrument_name",
+                "venue",
+                "symbols",
+                "timeframes"
+              ],
+              "properties": {
+                "primary_symbol": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "instrument_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "venue": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "symbols": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "timeframes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "trade_levels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "visual_elements": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "paired_context": {
+          "type": "object",
+          "required": [
+            "context_heading",
+            "context_text"
+          ],
+          "properties": {
+            "context_heading": {
+              "type": "string"
+            },
+            "context_text": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "derived": {
+      "type": "object",
+      "required": [
+        "asset_type",
+        "page_type",
+        "primary_symbol",
+        "instrument_name",
+        "venue",
+        "symbols",
+        "timeframes",
+        "bias",
+        "direction",
+        "setup_status",
+        "trade_levels",
+        "trading_concepts",
+        "trading_domains",
+        "labels"
+      ],
+      "properties": {
+        "asset_type": {
+          "type": "string"
+        },
+        "page_type": {
+          "type": "string"
+        },
+        "primary_symbol": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instrument_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venue": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeframes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "setup_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trade_levels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "trading_concepts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "trading_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "labels": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "source_document",
+        "context_scope",
+        "extraction_methods",
+        "field_sources",
+        "quality",
+        "review",
+        "ocr"
+      ],
+      "properties": {
+        "source_document": {
+          "type": "object",
+          "required": [
+            "source_pdf",
+            "page_number",
+            "asset_index",
+            "asset_source"
+          ],
+          "properties": {
+            "source_pdf": {
+              "type": "string"
+            },
+            "page_number": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "asset_index": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "asset_source": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "context_scope": {
+          "type": "string",
+          "enum": [
+            "crop_only",
+            "crop_plus_nearby_page_text"
+          ]
+        },
+        "extraction_methods": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "field_sources": {
+          "type": "object",
+          "required": [
+            "asset_type",
+            "page_type",
+            "primary_symbol",
+            "instrument_name",
+            "venue",
+            "symbols",
+            "timeframes",
+            "bias",
+            "direction",
+            "setup_status",
+            "trade_levels",
+            "trading_concepts",
+            "trading_domains"
+          ],
+          "properties": {
+            "asset_type": {
+              "type": "string"
+            },
+            "page_type": {
+              "type": "string"
+            },
+            "primary_symbol": {
+              "type": "string"
+            },
+            "instrument_name": {
+              "type": "string"
+            },
+            "venue": {
+              "type": "string"
+            },
+            "symbols": {
+              "type": "string"
+            },
+            "timeframes": {
+              "type": "string"
+            },
+            "bias": {
+              "type": "string"
+            },
+            "direction": {
+              "type": "string"
+            },
+            "setup_status": {
+              "type": "string"
+            },
+            "trade_levels": {
+              "type": "string"
+            },
+            "trading_concepts": {
+              "type": "string"
+            },
+            "trading_domains": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "quality": {
+          "type": "object",
+          "required": [
+            "annotation_quality",
+            "page_type_confidence"
+          ],
+          "properties": {
+            "annotation_quality": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            },
+            "page_type_confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "review": {
+          "type": "object",
+          "required": [
+            "required",
+            "reasons"
+          ],
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "ocr": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "available",
+            "status",
+            "language"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "available": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "language": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

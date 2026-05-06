@@ -4,6 +4,15 @@ __pycache__/
 venv/
 .tmp/
 .tessdata/
+.runtime/
+
+ChatGPT/browser_profile/
+ChatGPT/cookies/
+ChatGPT/logs/
+ChatGPT/screenshots/
+ChatGPT/config.json
+ChatGPT/config.backup.*.json
+ChatGPT/sites/**/screenshot_*.png
 
 data/processed/*.jsonl
 data/processed/*.json

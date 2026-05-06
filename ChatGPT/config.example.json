@@ -1,0 +1,8 @@
+{
+  "browser": "chrome",
+  "stealth": true,
+  "headless": false,
+  "user_data_dir": "../.runtime/chatgpt/browser_profile",
+  "cookies_file": "../.runtime/chatgpt/cookies/ChatGPT.json",
+  "active_selector_file": "sites/Startseite/Seitenleiste/selectors.json"
+}

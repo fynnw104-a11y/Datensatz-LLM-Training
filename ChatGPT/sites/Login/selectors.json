@@ -1,0 +1,560 @@
+[
+  {
+    "id": "login_1",
+    "label": "Alle akzeptieren",
+    "site": "chatgpt.com",
+    "page": "auth_login",
+    "url": "https://chatgpt.com/auth/login",
+    "element": {
+      "tag": "button",
+      "text": "Alle akzeptieren",
+      "attributes": {
+        "class": "btn relative group-focus-within/dialog:focus-visible:[outline-width:1.5px] group-focus-within/dialog:focus-visible:[outline-offset:2.5px] group-focus-within/dialog:focus-visible:[outline-style:solid] group-focus-within/dialog:focus-visible:[outline-color:var(--text-primary)] btn-secondary w-full mb-1.5 last:mb-0 sm:mb-2"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 352,
+        "x": 207.60000610351562,
+        "y": 615.6000366210938
+      }
+    },
+    "selectors": {
+      "css": "body > div:nth-of-type(4) > div > div > div > div > div > button:nth-of-type(1)",
+      "xpath": "//button[contains(normalize-space(.), 'Alle akzeptieren')]",
+      "alternatives": [
+        "button.btn.relative.group-focus-within\\/dialog\\:focus-visible\\:\\[outline-width\\:1\\.5px\\]"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:30:11+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "login_1",
+      "selector": "body > div:nth-of-type(4) > div > div > div > div > div > button:nth-of-type(1)",
+      "type": "css",
+      "text": "Alle akzeptieren",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:30:11+00:00",
+      "url_before_click": "https://chatgpt.com/auth/login",
+      "url_after_click": "https://chatgpt.com/auth/login"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//button[contains(normalize-space(.), 'Nicht unbedingt erforderliche ablehnen')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:30:04+00:00"
+  },
+  {
+    "id": "login_2",
+    "label": "Anmelden",
+    "site": "chatgpt.com",
+    "page": "auth_login",
+    "url": "https://chatgpt.com/auth/login",
+    "element": {
+      "tag": "button",
+      "text": "Anmelden",
+      "attributes": {
+        "class": "btn relative group-focus-within/dialog:focus-visible:[outline-width:1.5px] group-focus-within/dialog:focus-visible:[outline-offset:2.5px] group-focus-within/dialog:focus-visible:[outline-style:solid] group-focus-within/dialog:focus-visible:[outline-color:var(--text-primary)] btn-blue btn-large",
+        "data-testid": "login-button"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 44,
+        "width": 214,
+        "x": 163.60000610351562,
+        "y": 312.8000183105469
+      }
+    },
+    "selectors": {
+      "css": "button[data-testid='login-button']",
+      "xpath": "//button[@data-testid='login-button']",
+      "alternatives": [
+        "//button[contains(normalize-space(.), 'Anmelden')]",
+        "body > div:nth-of-type(1) > div > div:nth-of-type(2) > div:nth-of-type(1) > div > div > button:nth-of-type(1)",
+        "button.btn.relative.group-focus-within\\/dialog\\:focus-visible\\:\\[outline-width\\:1\\.5px\\]"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:30:38+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "data-testid gefunden",
+      "id": "login_2",
+      "selector": "button[data-testid='login-button']",
+      "type": "css",
+      "text": "Anmelden",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:30:38+00:00",
+      "url_before_click": "https://chatgpt.com/auth/login",
+      "url_after_click": "https://chatgpt.com/api/auth/error"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//button[contains(normalize-space(.), 'Zuerst ausprobieren')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:30:34+00:00"
+  },
+  {
+    "id": "login_3",
+    "label": "E-Mail-Adresse eintippen",
+    "site": "auth.openai.com",
+    "page": "log-in-or-create-account",
+    "url": "https://auth.openai.com/log-in-or-create-account",
+    "element": {
+      "tag": "input",
+      "text": "",
+      "attributes": {
+        "aria-labelledby": "react-aria3976285847-_r_9_",
+        "autocomplete": "email",
+        "class": "_input_1kwl2_1 _target_18qcl_134",
+        "data-rac": "",
+        "form": "_r_2_",
+        "id": "_r_2_-email",
+        "name": "email",
+        "placeholder": "E-Mail-Adresse",
+        "style": "outline: red solid 3px;",
+        "type": "email",
+        "value": ""
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 24,
+        "width": 298.3999938964844,
+        "x": 226.8000030517578,
+        "y": 627.4375
+      }
+    },
+    "selectors": {
+      "css": "input[id='_r_2_-email']",
+      "xpath": "//input[@id='_r_2_-email']",
+      "alternatives": [
+        "input[name='email']",
+        "//input[@name='email']",
+        "input[placeholder='E-Mail-Adresse']",
+        "//input[@placeholder='E-Mail-Adresse']",
+        "input._input_1kwl2_1._target_18qcl_134",
+        "input[type='email']",
+        "//input[@type='email']",
+        "body > div > div > fieldset > form > div:nth-of-type(2) > div:nth-of-type(1) > div > div > input"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:32:02+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "id gefunden",
+      "id": "login_3",
+      "selector": "input[id='_r_2_-email']",
+      "type": "css",
+      "text": "",
+      "tag": "input",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "type_tested": true,
+      "type_status": "typed",
+      "type_error": "",
+      "typed_at": "2026-05-06T06:32:02+00:00",
+      "typed_text": "hey"
+    },
+    "pre_actions": [],
+    "notes": "",
+    "created_at": "2026-05-06T06:31:53+00:00"
+  },
+  {
+    "id": "login_4",
+    "label": "Mit Apple fortfahren",
+    "site": "auth.openai.com",
+    "page": "log-in-or-create-account",
+    "url": "https://auth.openai.com/log-in-or-create-account",
+    "element": {
+      "tag": "button",
+      "text": "Mit Apple fortfahren",
+      "attributes": {
+        "aria-describedby": "",
+        "aria-disabled": "false",
+        "class": "_buttonStyleFix_wvuha_65 _root_2sicu_62 _leftAlign_2sicu_99 _outline_2sicu_119",
+        "data-dd-action-name": "Continue with Apple",
+        "form": "_r_1_",
+        "name": "intent",
+        "style": "outline: red solid 3px;",
+        "value": "apple"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 52,
+        "width": 340,
+        "x": 206,
+        "y": 270.2375183105469
+      }
+    },
+    "selectors": {
+      "css": "body > div > div > fieldset > form > div:nth-of-type(1) > div:nth-of-type(1) > div > div:nth-of-type(2) > button",
+      "xpath": "//button[contains(normalize-space(.), 'Mit Apple fortfahren')]",
+      "alternatives": [
+        "button[name='intent']",
+        "//button[@name='intent']",
+        "button._buttonStyleFix_wvuha_65._root_2sicu_62._leftAlign_2sicu_99"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:33:27+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "login_4",
+      "selector": "body > div > div > fieldset > form > div:nth-of-type(1) > div:nth-of-type(1) > div > div:nth-of-type(2) > button",
+      "type": "css",
+      "text": "Mit Apple fortfahren",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:33:27+00:00",
+      "url_before_click": "https://auth.openai.com/log-in-or-create-account",
+      "url_after_click": "https://auth.openai.com/log-in-or-create-account"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//button[contains(normalize-space(.), 'Mit Telefonnummer fortfahren')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:33:23+00:00"
+  },
+  {
+    "id": "login_5",
+    "label": "Email und Telefonnummer eintippen - bei apple anmeldung",
+    "site": "appleid.apple.com",
+    "page": "auth_authorize",
+    "url": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post",
+    "element": {
+      "tag": "input",
+      "text": "",
+      "attributes": {
+        "($blur)": "appleIdBlurHandler()",
+        "($focus)": "appleIdFocusHandler($element)",
+        "aria-invalid": "false",
+        "aria-labelledby": "apple_id_field_label",
+        "aria-required": "true",
+        "autocapitalize": "off",
+        "autocomplete": "username webauthn",
+        "autocorrect": "off",
+        "can-field": "accountName",
+        "class": "force-ltr form-textbox-input ",
+        "id": "account_name_text_field",
+        "required": "required",
+        "spellcheck": "false",
+        "style": "outline: red solid 3px;",
+        "type": "text"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 56,
+        "width": 460,
+        "x": 153.60000610351562,
+        "y": 292.32501220703125
+      }
+    },
+    "selectors": {
+      "css": "input[id='account_name_text_field']",
+      "xpath": "//input[@id='account_name_text_field']",
+      "alternatives": [
+        "input.force-ltr.form-textbox-input",
+        "input[type='text']",
+        "//input[@type='text']",
+        "body > div:nth-of-type(1) > oauth-init > div:nth-of-type(1) > div > oauth-signin > div > apple-auth > div > div > div > div:nth-of-type(1) > div > sign-in > div > div > div > div > div > div:nth-of-type(1) > div:nth-of-type(1) > div > div > input"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:35:10+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "id gefunden",
+      "id": "login_5",
+      "selector": "input[id='account_name_text_field']",
+      "type": "css",
+      "text": "",
+      "tag": "input",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "type_tested": true,
+      "type_status": "typed",
+      "type_error": "",
+      "typed_at": "2026-05-06T06:35:10+00:00",
+      "typed_text": "fynnw104@icloud.com"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[id='swp']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:34:55+00:00"
+  },
+  {
+    "id": "login_6",
+    "label": "Fortfahren",
+    "site": "appleid.apple.com",
+    "page": "auth_authorize",
+    "url": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post",
+    "element": {
+      "tag": "button",
+      "text": "Fortfahren",
+      "attributes": {
+        "($click)": "_verify($element)",
+        "class": " tk-subbody button button-rounded-rectangle signin-v2__buttons-wrapper__button-wrapper__button",
+        "id": "sign-in"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 37.60000228881836,
+        "width": 225,
+        "x": 153.60000610351562,
+        "y": 501.4250183105469
+      }
+    },
+    "selectors": {
+      "css": "button[id='sign-in']",
+      "xpath": "//button[@id='sign-in']",
+      "alternatives": [
+        "//button[contains(normalize-space(.), 'Fortfahren')]",
+        "body > div:nth-of-type(1) > oauth-init > div:nth-of-type(1) > div > oauth-signin > div > apple-auth > div > div > div > div:nth-of-type(1) > div > sign-in > div > div > div > div > div > div:nth-of-type(2) > div:nth-of-type(1) > div > button",
+        "button.tk-subbody.button.button-rounded-rectangle"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:35:24+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "id gefunden",
+      "id": "login_6",
+      "selector": "button[id='sign-in']",
+      "type": "css",
+      "text": "Fortfahren",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:35:24+00:00",
+      "url_before_click": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post",
+      "url_after_click": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[id='swp']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:35:19+00:00"
+  },
+  {
+    "id": "login_7",
+    "label": "Password eintippen - bei apple anmeldung",
+    "site": "appleid.apple.com",
+    "page": "auth_authorize",
+    "url": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post",
+    "element": {
+      "tag": "input",
+      "text": "",
+      "attributes": {
+        "($blur)": "pwdBlurHandler()",
+        "($focus)": "pwdFocusHandler()",
+        "aria-invalid": "false",
+        "aria-labelledby": "password_field_label",
+        "aria-required": "true",
+        "autocomplete": "off",
+        "can-field": "password",
+        "class": "form-textbox-input ",
+        "id": "password_text_field",
+        "required": "required",
+        "style": "outline: red solid 3px;",
+        "type": "password"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 56,
+        "width": 460,
+        "x": 153.60000610351562,
+        "y": 348.4250183105469
+      }
+    },
+    "selectors": {
+      "css": "input[id='password_text_field']",
+      "xpath": "//input[@id='password_text_field']",
+      "alternatives": [
+        "input[type='password']",
+        "//input[@type='password']",
+        "body > div:nth-of-type(1) > oauth-init > div:nth-of-type(1) > div > oauth-signin > div > apple-auth > div > div > div > div:nth-of-type(1) > div > sign-in > div > div > div > div > div > div:nth-of-type(1) > div:nth-of-type(2) > div > div > input",
+        "input.form-textbox-input"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:36:04+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "id gefunden",
+      "id": "login_7",
+      "selector": "input[id='password_text_field']",
+      "type": "css",
+      "text": "",
+      "tag": "input",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "type_tested": true,
+      "type_status": "typed",
+      "type_error": "",
+      "typed_at": "2026-05-06T06:36:04+00:00",
+      "typed_text": "Rabauke2"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[id='swp']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:35:55+00:00"
+  },
+  {
+    "id": "login_8",
+    "label": "Anmelden 2 nach Passwordeingabe",
+    "site": "appleid.apple.com",
+    "page": "auth_authorize",
+    "url": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post",
+    "element": {
+      "tag": "button",
+      "text": "Anmelden",
+      "attributes": {
+        "($click)": "_verify($element)",
+        "class": " tk-subbody button button-rounded-rectangle signin-v2__buttons-wrapper__button-wrapper__button",
+        "id": "sign-in",
+        "style": "outline: rgb(0, 200, 83) solid 4px; outline-offset: 2px;"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 37.60000228881836,
+        "width": 225,
+        "x": 153.60000610351562,
+        "y": 501.32501220703125
+      }
+    },
+    "selectors": {
+      "css": "button[id='sign-in']",
+      "xpath": "//button[@id='sign-in']",
+      "alternatives": [
+        "//button[contains(normalize-space(.), 'Anmelden')]",
+        "body > div:nth-of-type(1) > oauth-init > div:nth-of-type(1) > div > oauth-signin > div > apple-auth > div > div > div > div:nth-of-type(1) > div > sign-in > div > div > div > div > div > div:nth-of-type(2) > div:nth-of-type(1) > div > button",
+        "button.tk-subbody.button.button-rounded-rectangle"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:36:28+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "id gefunden",
+      "id": "login_8",
+      "selector": "button[id='sign-in']",
+      "type": "css",
+      "text": "Anmelden",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:36:28+00:00",
+      "url_before_click": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post",
+      "url_after_click": "https://appleid.apple.com/auth/authorize?response_type=code&client_id=com.openai.chat.sia&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fapi%2Faccounts%2Fcallback%2Fapple&scope=openid+name+email&state=77576bbc-0805-452e-ab83-1f49badd5e42&audience=com.openai.chat.sia&nonce=PeLXRCEQy4KSlB77v2Tj&response_mode=form_post",
+      "pre_actions": [
+        "pre_action hover ok"
+      ]
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[id='swp']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:36:24+00:00"
+  }
+]

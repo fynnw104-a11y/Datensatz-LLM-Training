@@ -2,3 +2,5 @@ pypdf>=5.0.0
 PyMuPDF>=1.24.0
 Pillow>=10.0.0
 pytesseract>=0.3.10
+selenium>=4.24.0
+selenium-stealth

@@ -1,0 +1,482 @@
+[
+  {
+    "id": "seitenleiste_1",
+    "label": "Seitenleiste schließen mit X",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "button",
+      "text": "",
+      "attributes": {
+        "aria-controls": "stage-popover-sidebar",
+        "aria-expanded": "true",
+        "aria-label": "Seitenleiste schließen",
+        "class": "text-token-text-tertiary contrast-high:not-dark:keyboard-focused:focus-ring no-draggable hover:bg-token-surface-hover keyboard-focused:bg-token-surface-hover touch:h-10 touch:w-10 flex h-9 w-9 items-center justify-center rounded-lg outline-none disabled:opacity-50 no-draggable cursor-w-resize rtl:cursor-e-resize",
+        "data-state": "closed",
+        "data-testid": "close-sidebar-button"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 36,
+        "x": 200.8000030517578,
+        "y": 8
+      }
+    },
+    "selectors": {
+      "css": "button[data-testid='close-sidebar-button']",
+      "xpath": "//button[@data-testid='close-sidebar-button']",
+      "alternatives": [
+        "button[aria-label='Seitenleiste schließen']",
+        "//button[@aria-label='Seitenleiste schließen']",
+        "button.text-token-text-tertiary.contrast-high\\:not-dark\\:keyboard-focused\\:focus-ring.no-draggable",
+        "body > div:nth-of-type(6) > div > nav > div:nth-of-type(1) > div > div > div > button"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:08:08+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "data-testid gefunden",
+      "id": "seitenleiste_1",
+      "selector": "button[data-testid='close-sidebar-button']",
+      "type": "css",
+      "text": "",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T07:08:08+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "a[data-testid='create-new-chat-button']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:08:04+00:00"
+  },
+  {
+    "id": "seitenleiste_2",
+    "label": "Neuer Chat",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "a",
+      "text": "Neuer Chat",
+      "attributes": {
+        "class": "group __menu-item hoverable",
+        "data-discover": "true",
+        "data-fill": "",
+        "data-revealed": "",
+        "data-sidebar-item": "true",
+        "data-testid": "create-new-chat-button",
+        "href": "/",
+        "tabindex": "0"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 232.8000030517578,
+        "x": 6,
+        "y": 60
+      }
+    },
+    "selectors": {
+      "css": "body > div:nth-of-type(6) > div > nav > div:nth-of-type(3) > ul > li:nth-of-type(1) > a",
+      "xpath": "",
+      "alternatives": [
+        "a[data-testid='create-new-chat-button']",
+        "//a[@data-testid='create-new-chat-button']",
+        "//a[contains(normalize-space(.), 'Neuer Chat')]",
+        "a.group.__menu-item.hoverable"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:08:35+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "seitenleiste_2",
+      "selector": "body > div:nth-of-type(6) > div > nav > div:nth-of-type(3) > ul > li:nth-of-type(1) > a",
+      "type": "css",
+      "text": "Neuer Chat\nCtrl",
+      "tag": "a",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T07:08:35+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//button[contains(normalize-space(.), 'Projekte')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:08:30+00:00"
+  },
+  {
+    "id": "seitenleiste_3",
+    "label": "Chats suchen",
+    "site": "chatgpt.com",
+    "page": "home",
+    "url": "https://chatgpt.com/",
+    "element": {
+      "tag": "button",
+      "text": "Chats suchen",
+      "attributes": {
+        "class": "group __menu-item hoverable w-full",
+        "data-fill": "",
+        "data-revealed": "",
+        "data-sidebar-item": "true",
+        "tabindex": "0",
+        "type": "button"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 232.8000030517578,
+        "x": 6,
+        "y": 96
+      }
+    },
+    "selectors": {
+      "css": "body > div:nth-of-type(6) > div > nav > div:nth-of-type(3) > ul > li:nth-of-type(2) > button",
+      "xpath": "",
+      "alternatives": [
+        "//button[contains(normalize-space(.), 'Chats suchen')]",
+        "button.group.__menu-item.hoverable",
+        "button[type='button']",
+        "//button[@type='button']"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:08:57+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "seitenleiste_3",
+      "selector": "body > div:nth-of-type(6) > div > nav > div:nth-of-type(3) > ul > li:nth-of-type(2) > button",
+      "type": "css",
+      "text": "Chats suchen\nCtrl",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T07:08:57+00:00",
+      "url_before_click": "https://chatgpt.com/",
+      "url_after_click": "https://chatgpt.com/"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "div[id='radix-_r_dp_']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:08:53+00:00"
+  },
+  {
+    "id": "seitenleiste_4",
+    "label": "Chats Suchen - eintippen",
+    "site": "chatgpt.com",
+    "page": "home",
+    "url": "https://chatgpt.com/",
+    "element": {
+      "tag": "input",
+      "text": "",
+      "attributes": {
+        "class": "placeholder:text-token-text-tertiary w-full border-none bg-transparent focus:border-transparent focus:ring-0 focus:outline-hidden",
+        "placeholder": "Chats suchen…",
+        "style": "outline: red solid 3px;",
+        "value": ""
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 40,
+        "width": 695.2000122070312,
+        "x": 12,
+        "y": 12
+      }
+    },
+    "selectors": {
+      "css": "input[placeholder='Chats suchen…']",
+      "xpath": "//input[@placeholder='Chats suchen…']",
+      "alternatives": [
+        "input.placeholder\\:text-token-text-tertiary.w-full.border-none",
+        "body > div:nth-of-type(5) > div > div > div > div > div > div:nth-of-type(1) > input"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:09:27+00:00",
+      "status": "ok",
+      "score": 90,
+      "reason": "placeholder gefunden",
+      "id": "seitenleiste_4",
+      "selector": "input[placeholder='Chats suchen…']",
+      "type": "css",
+      "text": "",
+      "tag": "input",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "type_tested": true,
+      "type_status": "typed",
+      "type_error": "",
+      "typed_at": "2026-05-06T07:09:27+00:00",
+      "typed_text": "hey"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//a[contains(normalize-space(.), 'Selector Tool Architektur')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:09:22+00:00"
+  },
+  {
+    "id": "seitenleiste_5",
+    "label": "zurück mit x",
+    "site": "chatgpt.com",
+    "page": "home",
+    "url": "https://chatgpt.com/",
+    "element": {
+      "tag": "button",
+      "text": "",
+      "attributes": {
+        "aria-label": "Schließen",
+        "class": "hover:bg-token-main-surface-secondary focus-visible:ring-token-text-quaternary dark:hover:bg-token-main-surface-tertiary flex items-center justify-center rounded-full bg-transparent p-1 focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent focus-visible:outline-hidden ms-4"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 28,
+        "width": 28,
+        "x": 708,
+        "y": 18
+      }
+    },
+    "selectors": {
+      "css": "button[aria-label='Schließen']",
+      "xpath": "//button[@aria-label='Schließen']",
+      "alternatives": [
+        "button.hover\\:bg-token-main-surface-secondary.focus-visible\\:ring-token-text-quaternary.dark\\:hover\\:bg-token-main-surface-tertiary",
+        "body > div:nth-of-type(5) > div > div > div > div > div > div:nth-of-type(1) > button"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:09:57+00:00",
+      "status": "ok",
+      "score": 94,
+      "reason": "aria-label gefunden",
+      "id": "seitenleiste_5",
+      "selector": "button[aria-label='Schließen']",
+      "type": "css",
+      "text": "",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T07:09:57+00:00",
+      "url_before_click": "https://chatgpt.com/",
+      "url_after_click": "https://chatgpt.com/"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//a[contains(normalize-space(.), 'Hey what hey')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:09:54+00:00"
+  },
+  {
+    "id": "seitenleiste_6",
+    "label": "Chat suche - einen chat auswählen",
+    "site": "chatgpt.com",
+    "page": "home",
+    "url": "https://chatgpt.com/",
+    "element": {
+      "tag": "a",
+      "text": "Hey what hey",
+      "attributes": {
+        "class": "block cursor-pointer no-underline",
+        "href": "/c/69fae2d6-5404-83eb-874a-6049d163dcb7?src=history_search"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 63.98749923706055,
+        "width": 736,
+        "x": 8,
+        "y": 72.80000305175781
+      }
+    },
+    "selectors": {
+      "css": "body > div:nth-of-type(5) > div > div > div > div > div > div:nth-of-type(2) > div > ol > li:nth-of-type(1) > div > a",
+      "xpath": "",
+      "alternatives": [
+        "a.block.cursor-pointer.no-underline",
+        "//a[contains(normalize-space(.), 'Hey what hey')]"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:10:42+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "seitenleiste_6",
+      "selector": "body > div:nth-of-type(5) > div > div > div > div > div > div:nth-of-type(2) > div > ol > li:nth-of-type(1) > div > a",
+      "type": "css",
+      "text": "Hey what\nhey",
+      "tag": "a",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T07:10:42+00:00",
+      "url_before_click": "https://chatgpt.com/",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//a[contains(normalize-space(.), 'Wechselsteuer Deutschland Erklärung Hey ChatGPT, du, ich wür')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:10:40+00:00"
+  },
+  {
+    "id": "seitenleiste_7",
+    "label": "Aktuelle chats auswählen",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "a",
+      "text": "Hey what",
+      "attributes": {
+        "aria-label": "Hey what",
+        "class": "group __menu-item hoverable transition-opacity duration-150",
+        "data-active": "",
+        "data-discover": "true",
+        "data-fill": "",
+        "data-sidebar-item": "true",
+        "draggable": "true",
+        "href": "/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+        "tabindex": "0"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 232.8000030517578,
+        "x": 6,
+        "y": 284
+      }
+    },
+    "selectors": {
+      "css": "a[aria-label='Hey what']",
+      "xpath": "//a[@aria-label='Hey what']",
+      "alternatives": [
+        "//a[contains(normalize-space(.), 'Hey what')]",
+        "body > div:nth-of-type(6) > div > nav > div:nth-of-type(5) > div:nth-of-type(2) > ul > li:nth-of-type(1) > a",
+        "a.group.__menu-item.hoverable"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:11:40+00:00",
+      "status": "ok",
+      "score": 94,
+      "reason": "aria-label gefunden",
+      "id": "seitenleiste_7",
+      "selector": "a[aria-label='Hey what']",
+      "type": "css",
+      "text": "Hey what",
+      "tag": "a",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T07:11:40+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "pre_actions": [
+        "pre_action hover ok"
+      ]
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "a[aria-label='Interactive Selenium Selector Tool']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:11:37+00:00"
+  }
+]

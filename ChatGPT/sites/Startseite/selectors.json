@@ -1,0 +1,796 @@
+[
+  {
+    "id": "startseite_1",
+    "label": "Eine Frage stellen",
+    "site": "chatgpt.com",
+    "page": "home",
+    "url": "https://chatgpt.com/",
+    "element": {
+      "tag": "p",
+      "text": "",
+      "attributes": {
+        "class": "placeholder",
+        "data-placeholder": "Stelle irgendeine Frage",
+        "style": "outline: red solid 3px;"
+      },
+      "visible": false,
+      "enabled": true,
+      "rect": {
+        "height": 0,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      }
+    },
+    "selectors": {
+      "css": "p.placeholder",
+      "xpath": "",
+      "alternatives": [
+        "body > p"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:42:15+00:00",
+      "status": "ok",
+      "score": 78,
+      "reason": "stabile Klassen gefunden",
+      "id": "startseite_1",
+      "selector": "p.placeholder",
+      "type": "css",
+      "text": "",
+      "tag": "p",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "type_tested": true,
+      "type_status": "typed",
+      "type_error": "",
+      "typed_at": "2026-05-06T06:42:15+00:00",
+      "typed_text": "hey"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//button[contains(normalize-space(.), 'Erstelle ein Bild')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:42:10+00:00"
+  },
+  {
+    "id": "startseite_2",
+    "label": "Frage abschicken",
+    "site": "chatgpt.com",
+    "page": "home",
+    "url": "https://chatgpt.com/",
+    "element": {
+      "tag": "button",
+      "text": "",
+      "attributes": {
+        "aria-describedby": "_r_2d_",
+        "aria-label": "Aufforderung senden",
+        "class": "composer-submit-btn composer-submit-button-color h-9 w-9",
+        "data-testid": "send-button",
+        "id": "composer-submit-button",
+        "interestfor": "_r_2d_",
+        "style": "anchor-name: --anchor-_r_2d_;"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 36,
+        "x": 657.6000366210938,
+        "y": 332.4250183105469
+      }
+    },
+    "selectors": {
+      "css": "button[data-testid='send-button']",
+      "xpath": "//button[@data-testid='send-button']",
+      "alternatives": [
+        "button[id='composer-submit-button']",
+        "//button[@id='composer-submit-button']",
+        "button[aria-label='Aufforderung senden']",
+        "//button[@aria-label='Aufforderung senden']",
+        "button.composer-submit-btn.composer-submit-button-color.h-9",
+        "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > main > div > div > div:nth-of-type(2) > div:nth-of-type(2) > div > div > div > div > div:nth-of-type(2) > form > div:nth-of-type(2) > div > div:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(2) > button"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:42:47+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "data-testid gefunden",
+      "id": "startseite_2",
+      "selector": "button[data-testid='send-button']",
+      "type": "css",
+      "text": "",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:42:47+00:00",
+      "url_before_click": "https://chatgpt.com/",
+      "url_after_click": "https://chatgpt.com/"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[aria-label='Diktat starten']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:42:42+00:00"
+  },
+  {
+    "id": "startseite_3",
+    "label": "Antwort von ChatGPT",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "div",
+      "text": "Hey! What can I help you with today?",
+      "attributes": {
+        "class": "min-h-8 text-message relative flex w-full flex-col items-end gap-2 text-start break-words whitespace-normal outline-none keyboard-focused:focus-ring [.text-message+&]:mt-1",
+        "data-message-author-role": "assistant",
+        "data-message-id": "379f1411-30b4-4018-894e-2228b25b1e1b",
+        "data-message-model-slug": "gpt-5-5",
+        "data-turn-start-message": "true",
+        "dir": "auto",
+        "tabindex": "0"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 32,
+        "width": 640,
+        "x": 63.60000228881836,
+        "y": 148
+      }
+    },
+    "selectors": {
+      "css": "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > main > div > div > div:nth-of-type(1) > div > section:nth-of-type(2) > div > div > div:nth-of-type(1) > div",
+      "xpath": "",
+      "alternatives": [
+        "div.min-h-8.text-message.relative",
+        "//div[contains(normalize-space(.), 'Hey! What can I help you with today?')]"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:43:21+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "startseite_3",
+      "selector": "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > main > div > div > div:nth-of-type(1) > div > section:nth-of-type(2) > div > div > div:nth-of-type(1) > div",
+      "type": "css",
+      "text": "Hey! What can I help you with today?",
+      "tag": "div",
+      "attempts_total": 3,
+      "attempts_tried": 1
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "div[aria-label='Antwortaktionen']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:43:20+00:00"
+  },
+  {
+    "id": "startseite_4",
+    "label": "Auf antwort antworten",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "p",
+      "text": "",
+      "attributes": {
+        "class": "placeholder",
+        "data-placeholder": "Stelle irgendeine Frage",
+        "style": "outline: red solid 3px;"
+      },
+      "visible": false,
+      "enabled": true,
+      "rect": {
+        "height": 0,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      }
+    },
+    "selectors": {
+      "css": "p.placeholder",
+      "xpath": "",
+      "alternatives": [
+        "body > p"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:43:58+00:00",
+      "status": "failed",
+      "score": 78,
+      "reason": "stabile Klassen gefunden",
+      "id": "startseite_4",
+      "selector": "p.placeholder",
+      "type": "css",
+      "text": "",
+      "tag": "p",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "failed",
+      "click_error": "Message: stale element reference: stale element not found in the current frame\n  (Session info: chrome=147.0.7727.138); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#staleelementreferenceexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff705c8a8e5+14e45]\n\tchromedriver!GetHandleVerifier [0x7ff705c8a950+14eb0]\n\tchromedriver!(No symbol) [0x7ff7059fd6ed]\n\tchromedriver!(No symbol) [0x7ff705a05671]\n\tchromedriver!(No symbol) [0x7ff705a08b2f]\n\tchromedriver!(No symbol) [0x7ff705aa5c1d]\n\tchromedriver!(No symbol) [0x7ff705a8002a]\n\tchromedriver!(No symbol) [0x7ff705aa483b]\n\tchromedriver!(No symbol) [0x7ff705a490e8]\n\tchromedriver!(No symbol) [0x7ff705a49fc3]\n\tchromedriver!GetHandleVerifier [0x7ff705fa0149+32a6a9]\n\tchromedriver!GetHandleVerifier [0x7ff705f9a715+324c75]\n\tchromedriver!GetHandleVerifier [0x7ff705fbc012+346572]\n\tchromedriver!GetHandleVerifier [0x7ff705ca7cb5+32215]\n\tchromedriver!GetHandleVerifier [0x7ff705cb087c+3addc]\n\tchromedriver!GetHandleVerifier [0x7ff705c940e4+1e644]\n\tchromedriver!GetHandleVerifier [0x7ff705c94296+1e7f6]\n\tchromedriver!GetHandleVerifier [0x7ff705c78737+2c97]\n\tKERNEL32!BaseThreadInitThunk [0x7ff979f4e957+17]\n\tntdll!RtlUserThreadStart [0x7ff97a20427c+2c]\n",
+      "clicked_at": "2026-05-06T06:43:58+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[aria-label='Voice starten']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:43:53+00:00"
+  },
+  {
+    "id": "startseite_5",
+    "label": "Auf antwort antworten",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "p",
+      "text": "",
+      "attributes": {
+        "class": "placeholder",
+        "data-placeholder": "Stelle irgendeine Frage",
+        "style": "outline: red solid 3px;"
+      },
+      "visible": false,
+      "enabled": true,
+      "rect": {
+        "height": 0,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      }
+    },
+    "selectors": {
+      "css": "p.placeholder",
+      "xpath": "",
+      "alternatives": [
+        "body > p"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:45:03+00:00",
+      "status": "ok",
+      "score": 78,
+      "reason": "stabile Klassen gefunden",
+      "id": "startseite_5",
+      "selector": "p.placeholder",
+      "type": "css",
+      "text": "",
+      "tag": "p",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "type_tested": true,
+      "type_status": "typed",
+      "type_error": "",
+      "typed_at": "2026-05-06T06:45:03+00:00",
+      "typed_text": "hey"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[aria-label='Voice starten']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:44:55+00:00"
+  },
+  {
+    "id": "startseite_6",
+    "label": "Antwort dann wieder abschicken",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "button",
+      "text": "",
+      "attributes": {
+        "aria-describedby": "_r_34_",
+        "aria-label": "Aufforderung senden",
+        "class": "composer-submit-btn composer-submit-button-color h-9 w-9",
+        "data-testid": "send-button",
+        "id": "composer-submit-button",
+        "interestfor": "_r_34_",
+        "style": "anchor-name: --anchor-_r_34_;"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 36,
+        "x": 657.6000366210938,
+        "y": 651.6000366210938
+      }
+    },
+    "selectors": {
+      "css": "button[data-testid='send-button']",
+      "xpath": "//button[@data-testid='send-button']",
+      "alternatives": [
+        "button[id='composer-submit-button']",
+        "//button[@id='composer-submit-button']",
+        "button[aria-label='Aufforderung senden']",
+        "//button[@aria-label='Aufforderung senden']",
+        "button.composer-submit-btn.composer-submit-button-color.h-9",
+        "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > main > div > div > div:nth-of-type(2) > div:nth-of-type(2) > div > div > div > div > div:nth-of-type(2) > form > div:nth-of-type(2) > div > div:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(2) > button"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:45:25+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "data-testid gefunden",
+      "id": "startseite_6",
+      "selector": "button[data-testid='send-button']",
+      "type": "css",
+      "text": "",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:45:25+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "button[aria-label='Voice starten']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:45:22+00:00"
+  },
+  {
+    "id": "startseite_7",
+    "label": "2. Antwort von ChatGPT",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "div",
+      "text": "Hi again 👋 What’s up?",
+      "attributes": {
+        "class": "min-h-8 text-message relative flex w-full flex-col items-end gap-2 text-start break-words whitespace-normal outline-none keyboard-focused:focus-ring [.text-message+&]:mt-1",
+        "data-message-author-role": "assistant",
+        "data-message-id": "e866b5f3-cfaf-4a7d-a0b7-4e214e8c035b",
+        "data-message-model-slug": "gpt-5-5",
+        "data-turn-start-message": "true",
+        "dir": "auto",
+        "tabindex": "0"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 32,
+        "width": 640,
+        "x": 63.60000228881836,
+        "y": 248.40000915527344
+      }
+    },
+    "selectors": {
+      "css": "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > main > div > div > div:nth-of-type(1) > div > section:nth-of-type(4) > div > div > div:nth-of-type(1) > div",
+      "xpath": "",
+      "alternatives": [
+        "div.min-h-8.text-message.relative",
+        "//div[contains(normalize-space(.), 'Hi again 👋 What’s up?')]"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:46:08+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "startseite_7",
+      "selector": "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > main > div > div > div:nth-of-type(1) > div > section:nth-of-type(4) > div > div > div:nth-of-type(1) > div",
+      "type": "css",
+      "text": "Hi again 👋 What’s up?",
+      "tag": "div",
+      "attempts_total": 3,
+      "attempts_tried": 1
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "div[aria-label='Antwortaktionen']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:46:07+00:00"
+  },
+  {
+    "id": "startseite_8",
+    "label": "Plus zeichen um Daten an nachricht anzufügen",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "button",
+      "text": "",
+      "attributes": {
+        "aria-controls": "radix-_r_q_",
+        "aria-expanded": "true",
+        "aria-haspopup": "menu",
+        "aria-label": "Dateien und mehr hinzufügen",
+        "class": "composer-btn",
+        "data-state": "open",
+        "data-testid": "composer-plus-btn",
+        "id": "composer-plus-btn",
+        "style": "outline: red solid 3px;",
+        "type": "button"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 36,
+        "x": 73.5999984741211,
+        "y": 651.6000366210938
+      }
+    },
+    "selectors": {
+      "css": "button[data-testid='composer-plus-btn']",
+      "xpath": "//button[@data-testid='composer-plus-btn']",
+      "alternatives": [
+        "button[id='composer-plus-btn']",
+        "//button[@id='composer-plus-btn']",
+        "button[aria-label='Dateien und mehr hinzufügen']",
+        "//button[@aria-label='Dateien und mehr hinzufügen']",
+        "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > main > div > div > div:nth-of-type(2) > div:nth-of-type(2) > div > div > div > div > div:nth-of-type(2) > form > div:nth-of-type(2) > div > div:nth-of-type(1) > span > button",
+        "button.composer-btn",
+        "button[type='button']",
+        "//button[@type='button']"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:46:47+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "data-testid gefunden",
+      "id": "startseite_8",
+      "selector": "button[data-testid='composer-plus-btn']",
+      "type": "css",
+      "text": "",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:46:47+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "div[aria-label='Mit ChatGPT chatten']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:46:43+00:00"
+  },
+  {
+    "id": "custom_element",
+    "label": "Dorbdown menü nach klick auf drei punkte - NIVHT GESICHERT",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "svg",
+      "text": "",
+      "attributes": {
+        "xmlns": "http://www.w3.org/2000/svg",
+        "width": "20",
+        "height": "20",
+        "aria-hidden": "true",
+        "class": "icon",
+        "style": "outline: red solid 3px;"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {}
+    },
+    "selectors": {
+      "css": "svg.icon",
+      "xpath": "//svg",
+      "alternatives": []
+    },
+    "validation": {
+      "unique": false,
+      "visible": false,
+      "clickable": false,
+      "matches": 0,
+      "last_tested": "2026-05-06T06:55:02+00:00",
+      "status": "custom_unvalidated",
+      "score": 0,
+      "reason": "Aus DevTools-HTML erstellt; mit selector test validieren"
+    },
+    "pre_actions": [],
+    "notes": "custom_html",
+    "created_at": "2026-05-06T06:55:02+00:00",
+    "source": {
+      "type": "custom_html",
+      "html": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\" aria-hidden=\"true\" class=\"icon\" style=\"outline: red solid 3px;\"><use href=\"/cdn/assets/sprites-core-6d2147a0.svg#f6d0e2\" fill=\"currentColor\" style=\"\"></use></svg>"
+    }
+  },
+  {
+    "id": "startseite_9",
+    "label": "Fotos und Dateien hinzufügen Ctrl U",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "div",
+      "text": "Fotos und Dateien hinzufügen Ctrl U",
+      "attributes": {
+        "class": "group __menu-item",
+        "data-orientation": "vertical",
+        "data-radix-collection-item": "",
+        "role": "menuitem",
+        "tabindex": "0"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 305.7124938964844,
+        "x": 72.4000015258789,
+        "y": 456.3999938964844
+      }
+    },
+    "selectors": {
+      "css": "body > div:nth-of-type(5) > div > div:nth-of-type(1) > div",
+      "xpath": "",
+      "alternatives": [
+        "div[role='menuitem']",
+        "//div[@role='menuitem']",
+        "div.group.__menu-item",
+        "//*[@role='menuitem' and contains(normalize-space(.), 'Fotos und Dateien hinzufügen Ctrl U')]",
+        "//div[contains(normalize-space(.), 'Fotos und Dateien hinzufügen Ctrl U')]"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:48:56+00:00",
+      "status": "ok",
+      "score": 31,
+      "reason": "DOM-Pfad als Fallback",
+      "id": "startseite_9",
+      "selector": "body > div:nth-of-type(5) > div > div:nth-of-type(1) > div",
+      "type": "css",
+      "text": "Fotos und Dateien hinzufügen",
+      "tag": "div",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:48:56+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "div[role='menuitemradio']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:48:53+00:00"
+  },
+  {
+    "id": "startseite_10",
+    "label": "Drei punke oben rechts",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "button",
+      "text": "",
+      "attributes": {
+        "aria-label": "Gesprächsoptionen öffnen",
+        "class": "text-token-text-primary contrast-high:not-dark:keyboard-focused:focus-ring no-draggable hover:bg-token-surface-hover keyboard-focused:bg-token-surface-hover touch:h-10 touch:w-10 flex h-9 w-9 items-center justify-center rounded-lg outline-none disabled:opacity-50",
+        "data-testid": "conversation-options-button"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 36,
+        "x": 708,
+        "y": 8
+      }
+    },
+    "selectors": {
+      "css": "button[data-testid='conversation-options-button']",
+      "xpath": "//button[@data-testid='conversation-options-button']",
+      "alternatives": [
+        "button[aria-label='Gesprächsoptionen öffnen']",
+        "//button[@aria-label='Gesprächsoptionen öffnen']",
+        "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > header > div:nth-of-type(3) > div:nth-of-type(2) > div > div > div > button",
+        "button.text-token-text-primary.contrast-high\\:not-dark\\:keyboard-focused\\:focus-ring.no-draggable"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T06:50:02+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "data-testid gefunden",
+      "id": "startseite_10",
+      "selector": "button[data-testid='conversation-options-button']",
+      "type": "css",
+      "text": "",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T06:50:02+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7"
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "section[data-testid='conversation-turn-1']",
+        "selector_type": "css",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T06:49:58+00:00"
+  },
+  {
+    "id": "startseite_11",
+    "label": "Seitenleiste öffnen",
+    "site": "chatgpt.com",
+    "page": "c_69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "url": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+    "element": {
+      "tag": "button",
+      "text": "Seitenleiste öffnen",
+      "attributes": {
+        "aria-controls": "stage-popover-sidebar",
+        "aria-expanded": "false",
+        "class": "touch:h-10 touch:w-10 inline-flex h-9 w-9 items-center justify-center rounded-md focus:outline-hidden hover:text-token-text-primary rounded-md focus:ring-2 focus:ring-white focus:ring-inset active:opacity-50",
+        "data-testid": "open-sidebar-button",
+        "type": "button"
+      },
+      "visible": true,
+      "enabled": true,
+      "rect": {
+        "height": 36,
+        "width": 36,
+        "x": 23.200000762939453,
+        "y": 8
+      }
+    },
+    "selectors": {
+      "css": "button[data-testid='open-sidebar-button']",
+      "xpath": "//button[@data-testid='open-sidebar-button']",
+      "alternatives": [
+        "//button[contains(normalize-space(.), 'Seitenleiste öffnen')]",
+        "button.touch\\:h-10.touch\\:w-10.inline-flex",
+        "body > div:nth-of-type(2) > div > div:nth-of-type(1) > div > div > div > header > div:nth-of-type(2) > div:nth-of-type(1) > button",
+        "button[type='button']",
+        "//button[@type='button']"
+      ]
+    },
+    "validation": {
+      "unique": true,
+      "visible": true,
+      "clickable": true,
+      "matches": 1,
+      "last_tested": "2026-05-06T07:05:31+00:00",
+      "status": "ok",
+      "score": 100,
+      "reason": "data-testid gefunden",
+      "id": "startseite_11",
+      "selector": "button[data-testid='open-sidebar-button']",
+      "type": "css",
+      "text": "Seitenleiste öffnen",
+      "tag": "button",
+      "attempts_total": 1,
+      "attempts_tried": 1,
+      "click_tested": true,
+      "click_status": "clicked",
+      "click_error": "",
+      "clicked_at": "2026-05-06T07:05:31+00:00",
+      "url_before_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "url_after_click": "https://chatgpt.com/c/69fae2d6-5404-83eb-874a-6049d163dcb7",
+      "pre_actions": [
+        "pre_action hover skipped: matches=16"
+      ]
+    },
+    "pre_actions": [
+      {
+        "action": "hover",
+        "selector": "//div[contains(normalize-space(.), 'Hi again 👋 What’s up?')]",
+        "selector_type": "xpath",
+        "wait": 0.4
+      }
+    ],
+    "notes": "",
+    "created_at": "2026-05-06T07:05:28+00:00"
+  }
+]

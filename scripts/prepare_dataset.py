@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Iterable
 import unicodedata
 
+from text_normalization import repair_common_mojibake
+
 ROOT = Path(__file__).resolve().parents[1]
 RAW_PDFS_DIR = ROOT / "data" / "raw" / "pdfs"
 RAW_NODES_DIR = ROOT / "data" / "raw" / "nodes"
@@ -220,6 +222,7 @@ def stable_id(*parts: str) -> str:
 
 
 def normalize_whitespace(text: str) -> str:
+    text = repair_common_mojibake(text)
     text = text.replace("\x00", " ")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t]+", " ", text)
@@ -282,6 +285,8 @@ def fuzzy_lookup(token: str, candidates: dict[str, str], minimum_score: float = 
         return None
     if normalized_token in candidates:
         return candidates[normalized_token]
+    if len(normalized_token) < 4:
+        return None
 
     best_match: str | None = None
     best_score = 0.0
@@ -821,7 +826,7 @@ def split_ocr_tokens(text: str) -> list[str]:
 
 def extract_pair_symbols(text: str) -> list[str]:
     symbols: set[str] = set()
-    candidate_lines = unique_lines([text, *text.splitlines()])
+    candidate_lines = unique_lines(text.splitlines())
     for line in candidate_lines:
         if "/" not in line:
             continue
@@ -935,6 +940,31 @@ def extract_timeframes(text: str) -> list[str]:
             found.add(canonical)
 
     return sorted(found)
+
+
+def derive_asset_market_fields(context_text: str, ocr_text: str, fallback_text: str = "") -> dict[str, Any]:
+    merged_text, _unused_methods = merge_extracted_text(context_text, ocr_text)
+    analysis_text = fallback_text or merged_text or ocr_text or context_text
+
+    visible_symbols = extract_symbols(ocr_text)
+    symbols = visible_symbols or extract_symbols(analysis_text)
+    primary_symbol = symbols[0] if symbols else None
+    instrument_name = display_name_for_symbol(primary_symbol)
+
+    visible_venues = extract_venues(ocr_text)
+    venues = visible_venues or extract_venues(analysis_text)
+    venue = venues[0] if venues else None
+
+    visible_timeframes = extract_timeframes(ocr_text)
+    timeframes = visible_timeframes or extract_timeframes(analysis_text)
+
+    return {
+        "symbols": symbols,
+        "primary_symbol": primary_symbol,
+        "instrument_name": instrument_name,
+        "venue": venue,
+        "timeframes": timeframes,
+    }
 
 
 def extract_keyword_labels(text: str, keyword_map: dict[str, list[str]]) -> list[str]:
@@ -1276,6 +1306,7 @@ def is_visual_candidate(bbox: BBox, page_bbox: BBox) -> bool:
 
 
 def normalize_context_line(line: str) -> str:
+    line = repair_common_mojibake(line)
     line = line.replace("\x00", " ").replace("\u00a0", " ")
     line = re.sub(r"^[•*\-–—]+\s*", "", line.strip())
     line = re.sub(r"\s+", " ", line)
@@ -1904,27 +1935,557 @@ def build_asset_labels(
     }
 
 
-def build_asset_training_target(annotation: dict[str, Any]) -> dict[str, Any]:
+def text_contains_value(text: str, value: str) -> bool:
+    normalized_text = normalize_token(text)
+    normalized_value = normalize_token(value)
+    return bool(normalized_text and normalized_value and normalized_value in normalized_text)
+
+
+def infer_scalar_text_source(
+    value: str | None,
+    context_text: str,
+    ocr_text: str,
+    fallback: str = "heuristic",
+) -> str:
+    if not value:
+        return "missing"
+    in_context = text_contains_value(context_text, value)
+    in_ocr = text_contains_value(ocr_text, value)
+    if in_context and in_ocr:
+        return "context+ocr"
+    if in_context:
+        return "context"
+    if in_ocr:
+        return "ocr"
+    return fallback
+
+
+def infer_list_text_source(
+    values: list[str],
+    context_text: str,
+    ocr_text: str,
+    fallback: str = "heuristic",
+) -> str:
+    if not values:
+        return "missing"
+    in_context = any(text_contains_value(context_text, value) for value in values)
+    in_ocr = any(text_contains_value(ocr_text, value) for value in values)
+    if in_context and in_ocr:
+        return "context+ocr"
+    if in_context:
+        return "context"
+    if in_ocr:
+        return "ocr"
+    return fallback
+
+
+def infer_dict_text_source(
+    values: dict[str, str],
+    context_text: str,
+    ocr_text: str,
+    fallback: str = "regex_extraction",
+) -> str:
+    if not values:
+        return "missing"
+    raw_values = list(values.values())
+    in_context = any(text_contains_value(context_text, value) for value in raw_values)
+    in_ocr = any(text_contains_value(ocr_text, value) for value in raw_values)
+    if in_context and in_ocr:
+        return "regex_from_context+ocr"
+    if in_context:
+        return "regex_from_context"
+    if in_ocr:
+        return "regex_from_ocr"
+    return fallback
+
+
+def source_uses_ocr(source_name: str) -> bool:
+    return "ocr" in source_name
+
+
+def promote_source_with_ocr_normalization(source_name: str, has_visible_signal: bool, ocr_text: str) -> str:
+    if not has_visible_signal or not ocr_text or source_name == "missing":
+        return source_name
+    if source_uses_ocr(source_name):
+        return source_name
+    if source_name == "context":
+        return "context+ocr_normalization"
+    if source_name.startswith("heuristic"):
+        return "ocr_normalization"
+    return source_name
+
+
+def filter_values_by_detected_visibility(values: list[str], detected_values: Iterable[str]) -> list[str]:
+    visible_lookup = {value for value in detected_values if value}
+    return [value for value in values if value in visible_lookup]
+
+
+def filter_trade_levels_by_visibility(trade_levels: dict[str, str], ocr_text: str) -> dict[str, str]:
+    if not trade_levels or not ocr_text:
+        return {}
     return {
-        "asset_type": annotation["asset_type"],
-        "page_type": annotation["page_type"],
-        "caption": annotation["caption"],
-        "description": annotation["description"],
-        "clean_text": annotation["clean_text"],
-        "context_text": annotation["context_text"],
-        "ocr_text": annotation["ocr_text"],
-        "primary_symbol": annotation["primary_symbol"],
-        "instrument_name": annotation["instrument_name"],
-        "venue": annotation["venue"],
-        "symbols": annotation["symbols"],
-        "timeframes": annotation["timeframes"],
-        "bias": annotation["bias"],
-        "direction": annotation["direction"],
-        "setup_status": annotation["setup_status"],
-        "trade_levels": annotation["trade_levels"],
-        "trading_concepts": annotation["trading_concepts"],
-        "trading_domains": annotation["trading_domains"],
-        "labels": annotation["labels"],
+        field_name: field_value
+        for field_name, field_value in trade_levels.items()
+        if text_contains_value(ocr_text, field_value)
+    }
+
+
+def symbol_is_visible_in_ocr(symbol: str, ocr_text: str) -> bool:
+    if not symbol or not ocr_text:
+        return False
+    if text_contains_value(ocr_text, symbol):
+        return True
+    if symbol in extract_symbols(ocr_text):
+        return True
+
+    display_name = display_name_for_symbol(symbol)
+    return bool(display_name and text_contains_value(ocr_text, display_name))
+
+
+def filter_visible_symbols(symbols: list[str], ocr_text: str) -> list[str]:
+    return [symbol for symbol in symbols if symbol_is_visible_in_ocr(symbol, ocr_text)]
+
+
+def timeframe_is_visible_in_ocr(timeframe: str, ocr_text: str) -> bool:
+    if not timeframe or not ocr_text:
+        return False
+
+    normalized_text = ascii_fold(ocr_text).lower()
+    aliases = [timeframe.lower()]
+    aliases.extend(raw_timeframe for raw_timeframe, canonical in TIMEFRAME_MAP.items() if canonical == timeframe)
+
+    seen_aliases: set[str] = set()
+    for alias in aliases:
+        if not alias or alias in seen_aliases:
+            continue
+        seen_aliases.add(alias)
+        if re.search(rf"\b{re.escape(alias)}\b", normalized_text):
+            return True
+
+    if timeframe.startswith("M") and timeframe[1:].isdigit():
+        minute_value = timeframe[1:]
+        venue_pattern = "|".join(venue.lower() for venue in sorted(KNOWN_VENUES))
+        if re.search(rf"\b{re.escape(minute_value)}\b(?=\s*[,/|-]?\s*(?:{venue_pattern})\b)", normalized_text):
+            return True
+
+    return False
+
+
+def filter_visible_timeframes(timeframes: list[str], ocr_text: str) -> list[str]:
+    return [timeframe for timeframe in timeframes if timeframe_is_visible_in_ocr(timeframe, ocr_text)]
+
+
+def resolve_visible_crop_fields(annotation: dict[str, Any], field_sources: dict[str, str]) -> dict[str, Any]:
+    ocr_text = annotation["ocr_text"]
+    detected_venues = extract_venues(ocr_text)
+
+    visible_instrument_name = (
+        annotation["instrument_name"]
+        if annotation["instrument_name"] and source_uses_ocr(field_sources["instrument_name"])
+        else None
+    )
+
+    visible_primary_symbol = None
+    if annotation["primary_symbol"] and source_uses_ocr(field_sources["primary_symbol"]):
+        if symbol_is_visible_in_ocr(annotation["primary_symbol"], ocr_text) or visible_instrument_name:
+            visible_primary_symbol = annotation["primary_symbol"]
+
+    visible_symbol_candidates = set()
+    if source_uses_ocr(field_sources["symbols"]):
+        visible_symbol_candidates.update(filter_visible_symbols(annotation["symbols"], ocr_text))
+        if visible_primary_symbol and visible_primary_symbol in annotation["symbols"]:
+            visible_symbol_candidates.add(visible_primary_symbol)
+    visible_symbols = [value for value in annotation["symbols"] if value in visible_symbol_candidates]
+
+    visible_venue = (
+        annotation["venue"]
+        if annotation["venue"] and source_uses_ocr(field_sources["venue"]) and annotation["venue"] in detected_venues
+        else None
+    )
+    visible_timeframes = (
+        filter_visible_timeframes(annotation["timeframes"], ocr_text)
+        if source_uses_ocr(field_sources["timeframes"])
+        else []
+    )
+    visible_trade_levels = (
+        filter_trade_levels_by_visibility(annotation["trade_levels"], ocr_text)
+        if source_uses_ocr(field_sources["trade_levels"])
+        else {}
+    )
+
+    return {
+        "primary_symbol": visible_primary_symbol,
+        "instrument_name": visible_instrument_name,
+        "venue": visible_venue,
+        "symbols": visible_symbols,
+        "timeframes": visible_timeframes,
+        "trade_levels": visible_trade_levels,
+    }
+
+
+def unique_preserving_order(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    unique_values: list[str] = []
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            unique_values.append(value)
+    return unique_values
+
+
+def has_ocr_encoding_artifacts(text: str) -> bool:
+    return any(marker in text for marker in ("\ufffd", "Ã", "Â", "â€", "ï¿½"))
+
+
+def build_visual_element_tags(annotation: dict[str, Any]) -> list[str]:
+    labels = annotation["labels"]
+    elements: list[str] = []
+
+    asset_type = annotation["asset_type"]
+    if asset_type == "chart":
+        elements.append("chart_panel")
+    elif asset_type == "performance_panel":
+        elements.append("performance_panel")
+    elif asset_type == "strategy_figure":
+        elements.append("strategy_panel")
+    elif asset_type == "figure":
+        elements.append("generic_figure")
+    else:
+        elements.append("unknown_visual")
+
+    if labels.get("contains_symbol"):
+        elements.append("symbol_label")
+    if labels.get("contains_timeframe"):
+        elements.append("timeframe_label")
+    if annotation.get("venue"):
+        elements.append("venue_label")
+    if annotation.get("ocr_text"):
+        elements.append("ocr_text_overlay")
+    if annotation.get("trade_levels"):
+        elements.append("price_level_text")
+    if labels.get("likely_chart"):
+        elements.append("price_axis_or_scale")
+    if labels.get("contains_performance_metrics"):
+        elements.append("performance_metric_text")
+    if labels.get("contains_strategy_rules"):
+        elements.append("strategy_rule_text")
+
+    return unique_preserving_order(elements)
+
+
+def build_crop_clean_text(
+    asset_type: str,
+    primary_symbol: str | None,
+    instrument_name: str | None,
+    venue: str | None,
+    timeframes: list[str],
+    ocr_text: str,
+    trade_levels: dict[str, str],
+) -> str:
+    lines: list[str] = [f"Asset type: {asset_type}"]
+    if primary_symbol:
+        lines.append(f"Instrument: {primary_symbol}")
+    if instrument_name and instrument_name != primary_symbol:
+        lines.append(f"Instrument label: {instrument_name}")
+    if venue:
+        lines.append(f"Venue: {venue}")
+    if timeframes:
+        lines.append("Timeframes: " + ", ".join(timeframes))
+    if trade_levels:
+        level_summary = ", ".join(
+            f"{field_name.replace('_', ' ')} {field_value}" for field_name, field_value in trade_levels.items()
+        )
+        lines.append("Visible levels: " + level_summary)
+
+    visible_lines = select_visible_label_lines(ocr_text)
+    if visible_lines:
+        lines.append("Visible labels: " + "; ".join(visible_lines[:3]))
+
+    return "\n".join(lines)
+
+
+def build_visual_summary(
+    asset_type: str,
+    primary_symbol: str | None,
+    instrument_name: str | None,
+    venue: str | None,
+    timeframes: list[str],
+    ocr_text: str,
+    trade_levels: dict[str, str],
+    visual_elements: list[str],
+) -> str:
+    if asset_type == "chart":
+        if primary_symbol and timeframes:
+            opening = f"Chart crop showing {primary_symbol} on {', '.join(timeframes[:2])}."
+        elif primary_symbol:
+            opening = f"Chart crop showing {primary_symbol}."
+        elif timeframes:
+            opening = f"Chart crop with visible timeframe {', '.join(timeframes[:2])}."
+        else:
+            opening = "Trading chart crop."
+    elif asset_type != "unknown":
+        opening = f"{asset_type.replace('_', ' ').capitalize()} crop."
+    else:
+        opening = "Trading-related crop."
+
+    sentences = [opening]
+    if instrument_name and instrument_name != primary_symbol:
+        sentences.append(f"Visible instrument label maps to {instrument_name}.")
+    if venue:
+        sentences.append(f"Visible venue label: {venue}.")
+    if trade_levels:
+        level_summary = ", ".join(
+            f"{field_name.replace('_', ' ')} {field_value}" for field_name, field_value in trade_levels.items()
+        )
+        sentences.append(f"Visible price text includes {level_summary}.")
+
+    visible_lines = select_visible_label_lines(ocr_text)
+    if visible_lines:
+        sentences.append("Visible text includes " + "; ".join(visible_lines[:2]) + ".")
+    elif ocr_text:
+        excerpt = sentence_excerpt(ocr_text, max_length=140)
+        if excerpt:
+            sentences.append(f"OCR excerpt: {excerpt}")
+
+    if visual_elements:
+        rendered_elements = ", ".join(element.replace("_", " ") for element in visual_elements[:6])
+        sentences.append(f"Key visual elements: {rendered_elements}.")
+
+    return " ".join(sentences[:4])
+
+
+def build_review_reasons(annotation: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    labels = annotation["labels"]
+
+    if annotation["review_required"]:
+        reasons.append("auto_review_flag")
+    if labels.get("text_density") == "low":
+        reasons.append("low_text_density")
+    if annotation["asset_type"] == "unknown":
+        reasons.append("unknown_asset_type")
+    if annotation["page_type_confidence"] < 0.45:
+        reasons.append("low_page_type_confidence")
+    if "text_gap" in annotation["asset_source"]:
+        reasons.append("text_gap_crop")
+    if has_ocr_encoding_artifacts(annotation["ocr_text"]):
+        reasons.append("ocr_encoding_artifacts")
+    if not annotation["primary_symbol"]:
+        reasons.append("missing_primary_symbol")
+    if not annotation["timeframes"]:
+        reasons.append("missing_timeframe")
+
+    return unique_preserving_order(reasons)
+
+
+def infer_annotation_quality(annotation: dict[str, Any], review_reasons: list[str]) -> str:
+    score = 0
+    if annotation["primary_symbol"]:
+        score += 1
+    if annotation["timeframes"]:
+        score += 1
+    if annotation["venue"]:
+        score += 1
+    if annotation["ocr_text"]:
+        score += 1
+    if annotation["context_text"]:
+        score += 1
+    if not has_ocr_encoding_artifacts(annotation["ocr_text"]):
+        score += 1
+    score -= min(len(review_reasons), 3)
+
+    if score >= 4:
+        return "high"
+    if score >= 2:
+        return "medium"
+    return "low"
+
+
+def build_asset_training_target(annotation: dict[str, Any]) -> dict[str, Any]:
+    context_text = annotation["context_text"]
+    ocr_text = annotation["ocr_text"]
+    primary_symbol_visible_in_ocr = symbol_is_visible_in_ocr(annotation["primary_symbol"], ocr_text)
+    visible_symbol_matches = filter_visible_symbols(annotation["symbols"], ocr_text)
+    visible_timeframe_matches = filter_visible_timeframes(annotation["timeframes"], ocr_text)
+    detected_venues = extract_venues(ocr_text)
+    venue_visible_in_ocr = bool(annotation["venue"] and annotation["venue"] in detected_venues)
+
+    primary_symbol_source = infer_scalar_text_source(annotation["primary_symbol"], context_text, ocr_text)
+    if primary_symbol_source == "heuristic" and annotation["primary_symbol"] and primary_symbol_visible_in_ocr:
+        primary_symbol_source = "ocr_normalization"
+    primary_symbol_source = promote_source_with_ocr_normalization(
+        primary_symbol_source,
+        has_visible_signal=primary_symbol_visible_in_ocr,
+        ocr_text=ocr_text,
+    )
+
+    symbols_source = infer_list_text_source(
+        annotation["symbols"],
+        context_text,
+        ocr_text,
+        fallback="heuristic_normalization",
+    )
+    if (
+        symbols_source == "heuristic_normalization"
+        and annotation["symbols"]
+        and visible_symbol_matches
+    ):
+        symbols_source = "ocr_normalization"
+    symbols_source = promote_source_with_ocr_normalization(
+        symbols_source,
+        has_visible_signal=bool(visible_symbol_matches),
+        ocr_text=ocr_text,
+    )
+
+    timeframes_source = infer_list_text_source(
+        annotation["timeframes"],
+        context_text,
+        ocr_text,
+        fallback="heuristic_normalization",
+    )
+    if (
+        timeframes_source == "heuristic_normalization"
+        and annotation["timeframes"]
+        and visible_timeframe_matches
+    ):
+        timeframes_source = "ocr_normalization"
+    timeframes_source = promote_source_with_ocr_normalization(
+        timeframes_source,
+        has_visible_signal=bool(visible_timeframe_matches),
+        ocr_text=ocr_text,
+    )
+
+    venue_source = infer_scalar_text_source(annotation["venue"], context_text, ocr_text, fallback="heuristic_normalization")
+    venue_source = promote_source_with_ocr_normalization(
+        venue_source,
+        has_visible_signal=venue_visible_in_ocr,
+        ocr_text=ocr_text,
+    )
+
+    field_sources = {
+        "asset_type": "heuristic_classifier",
+        "page_type": "heuristic_classifier",
+        "primary_symbol": primary_symbol_source,
+        "instrument_name": (
+            "symbol_lookup_from_ocr_symbol"
+            if annotation["instrument_name"] and source_uses_ocr(primary_symbol_source)
+            else "symbol_lookup_from_context_symbol"
+            if annotation["instrument_name"] and annotation["primary_symbol"]
+            else "missing"
+        ),
+        "venue": venue_source,
+        "symbols": symbols_source,
+        "timeframes": timeframes_source,
+        "bias": infer_scalar_text_source(annotation["bias"], context_text, ocr_text, fallback="keyword_heuristic"),
+        "direction": infer_scalar_text_source(
+            annotation["direction"],
+            context_text,
+            ocr_text,
+            fallback="keyword_heuristic",
+        ),
+        "setup_status": "keyword_heuristic" if annotation["setup_status"] else "missing",
+        "trade_levels": infer_dict_text_source(annotation["trade_levels"], context_text, ocr_text),
+        "trading_concepts": "keyword_heuristic" if annotation["trading_concepts"] else "missing",
+        "trading_domains": "keyword_heuristic" if annotation["trading_domains"] else "missing",
+    }
+
+    visible_fields = resolve_visible_crop_fields(annotation, field_sources)
+    visible_primary_symbol = visible_fields["primary_symbol"]
+    visible_instrument_name = visible_fields["instrument_name"]
+    visible_venue = visible_fields["venue"]
+    visible_symbols = visible_fields["symbols"]
+    visible_timeframes = visible_fields["timeframes"]
+    visible_trade_levels = visible_fields["trade_levels"]
+    visual_elements = build_visual_element_tags(annotation)
+    review_reasons = build_review_reasons(annotation)
+
+    return {
+        "schema_version": "3.0",
+        "task_type": "image_to_structured_annotation",
+        "description": {
+            "short_caption": annotation["caption"],
+            "visual_summary": build_visual_summary(
+                asset_type=annotation["asset_type"],
+                primary_symbol=visible_primary_symbol,
+                instrument_name=visible_instrument_name,
+                venue=visible_venue,
+                timeframes=visible_timeframes,
+                ocr_text=ocr_text,
+                trade_levels=visible_trade_levels,
+                visual_elements=visual_elements,
+            ),
+            "context_augmented_summary": annotation["description"],
+            "key_visual_elements": visual_elements,
+            "limitations": review_reasons,
+        },
+        "observed": {
+            "visible_in_crop": {
+                "ocr_text": ocr_text,
+                "clean_text": build_crop_clean_text(
+                    asset_type=annotation["asset_type"],
+                    primary_symbol=visible_primary_symbol,
+                    instrument_name=visible_instrument_name,
+                    venue=visible_venue,
+                    timeframes=visible_timeframes,
+                    ocr_text=ocr_text,
+                    trade_levels=visible_trade_levels,
+                ),
+                "normalized_fields": {
+                    "primary_symbol": visible_primary_symbol,
+                    "instrument_name": visible_instrument_name,
+                    "venue": visible_venue,
+                    "symbols": visible_symbols,
+                    "timeframes": visible_timeframes,
+                },
+                "trade_levels": visible_trade_levels,
+                "visual_elements": visual_elements,
+            },
+            "paired_context": {
+                "context_heading": annotation["context_heading"],
+                "context_text": context_text,
+            },
+        },
+        "derived": {
+            "asset_type": annotation["asset_type"],
+            "page_type": annotation["page_type"],
+            "primary_symbol": annotation["primary_symbol"],
+            "instrument_name": annotation["instrument_name"],
+            "venue": annotation["venue"],
+            "symbols": annotation["symbols"],
+            "timeframes": annotation["timeframes"],
+            "bias": annotation["bias"],
+            "direction": annotation["direction"],
+            "setup_status": annotation["setup_status"],
+            "trade_levels": annotation["trade_levels"],
+            "trading_concepts": annotation["trading_concepts"],
+            "trading_domains": annotation["trading_domains"],
+            "labels": annotation["labels"],
+        },
+        "provenance": {
+            "source_document": {
+                "source_pdf": annotation["source_pdf"],
+                "page_number": annotation["page_number"],
+                "asset_index": annotation["asset_index"],
+                "asset_source": annotation["asset_source"],
+            },
+            "context_scope": "crop_plus_nearby_page_text" if context_text else "crop_only",
+            "extraction_methods": annotation["extraction_methods"],
+            "field_sources": field_sources,
+            "quality": {
+                "annotation_quality": infer_annotation_quality(annotation, review_reasons),
+                "page_type_confidence": annotation["page_type_confidence"],
+            },
+            "review": {
+                "required": annotation["review_required"],
+                "reasons": review_reasons,
+            },
+            "ocr": {
+                "enabled": annotation["ocr_metadata"].get("enabled"),
+                "available": annotation["ocr_metadata"].get("available"),
+                "status": annotation["ocr_metadata"].get("status"),
+                "language": annotation["ocr_metadata"].get("language"),
+            },
+        },
     }
 
 
@@ -2021,12 +2582,16 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                         extraction_methods.append("ocr")
 
                     analysis_text = combined_text or embedded_text
-                    symbols = extract_symbols(analysis_text)
-                    primary_symbol = symbols[0] if symbols else None
-                    instrument_name = display_name_for_symbol(primary_symbol)
-                    venues = extract_venues(analysis_text)
-                    venue = venues[0] if venues else None
-                    timeframes = extract_timeframes(analysis_text)
+                    market_fields = derive_asset_market_fields(
+                        context_text=context_text,
+                        ocr_text=polished_ocr_text,
+                        fallback_text=analysis_text,
+                    )
+                    symbols = market_fields["symbols"]
+                    primary_symbol = market_fields["primary_symbol"]
+                    instrument_name = market_fields["instrument_name"]
+                    venue = market_fields["venue"]
+                    timeframes = market_fields["timeframes"]
                     trading_concepts = extract_keyword_labels(analysis_text, CONCEPT_KEYWORDS)
                     trading_domains = extract_keyword_labels(analysis_text, DOMAIN_KEYWORDS)
                     page_type, page_type_confidence = infer_page_type(analysis_text, symbols, timeframes)
@@ -2105,7 +2670,7 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
 
                     asset_annotation = {
                         "id": asset_id,
-                        "annotation_version": "2.0",
+                        "annotation_version": "3.0",
                         "pair_type": "visual_asset",
                         "image_path": root_relative(asset_image_path),
                         "json_path": root_relative(asset_annotation_path),
