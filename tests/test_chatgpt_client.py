@@ -153,6 +153,13 @@ class ChatGPTClientTests(unittest.TestCase):
         file_input.send_keys.assert_called_once_with(str(attachment.resolve()))
         client._wait_for_pending_attachments.assert_called_once_with(expected_min=1, timeout=10.0)
 
+    def test_pending_attachment_count_uses_visible_preview_count(self) -> None:
+        client = self._build_client()
+        client._attachment_preview_count = mock.Mock(return_value=2)
+        client._selected_file_input_count = mock.Mock(return_value=1)
+
+        self.assertEqual(ChatGPTClient._pending_attachment_count(client), 2)
+
     def test_prepare_clean_composer_reloads_when_attachments_remain(self) -> None:
         client = self._build_client(current_url="https://chatgpt.com/c/existing-chat")
         composer = object()
@@ -211,6 +218,43 @@ class ChatGPTClientTests(unittest.TestCase):
             prompt="Describe the image.",
             attachments=[attachment],
             new_chat=True,
+            allow_manual_login=True,
+        )
+
+        self.assertEqual(response.url, "https://chatgpt.com/c/retried-chat")
+        self.assertEqual(client.attach_files.call_count, 2)
+        client._reset_before_compose_retry.assert_called_once_with(new_chat=True)
+
+    def test_run_prompt_retries_attachment_preview_failure_in_new_chat(self) -> None:
+        client = self._build_client()
+        attachment = ROOT / "README.md"
+        client.ensure_logged_in = mock.Mock()
+        client.start_new_chat = mock.Mock()
+        client._wait_for_composer = mock.Mock()
+        client._current_assistant_snapshot = mock.Mock(return_value=[])
+        client.attach_files = mock.Mock(
+            side_effect=[
+                RuntimeError("Image upload did not appear in the ChatGPT composer after Selenium selected the file."),
+                None,
+            ]
+        )
+        client.enter_prompt = mock.Mock()
+        client._send_prompt = mock.Mock()
+        client.wait_for_response = mock.Mock(
+            return_value=ChatGPTResponse(
+                message_id="msg-1",
+                model_slug="gpt-test",
+                text="done",
+                url="https://chatgpt.com/c/retried-chat",
+            )
+        )
+        client._reset_before_compose_retry = mock.Mock()
+
+        response = ChatGPTClient.run_prompt(
+            client,
+            prompt="Describe the image.",
+            attachments=[attachment],
+            new_chat=False,
             allow_manual_login=True,
         )
 

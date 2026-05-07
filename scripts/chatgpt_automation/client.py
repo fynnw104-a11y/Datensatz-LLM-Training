@@ -33,8 +33,18 @@ except ImportError as exc:  # pragma: no cover - depends on local machine state
     StaleElementReferenceException = Exception  # type: ignore[assignment]
     TimeoutException = Exception  # type: ignore[assignment]
     WebDriverException = Exception  # type: ignore[assignment]
-    By = object  # type: ignore[assignment]
-    Keys = object  # type: ignore[assignment]
+    class _FallbackBy:
+        CSS_SELECTOR = "css selector"
+        TAG_NAME = "tag name"
+        XPATH = "xpath"
+
+    class _FallbackKeys:
+        CONTROL = "\ue009"
+        DELETE = "\ue017"
+        ESCAPE = "\ue00c"
+
+    By = _FallbackBy  # type: ignore[assignment]
+    Keys = _FallbackKeys  # type: ignore[assignment]
     WebElement = object  # type: ignore[assignment]
     EC = object  # type: ignore[assignment]
     WebDriverWait = object  # type: ignore[assignment]
@@ -110,6 +120,30 @@ ATTACHMENT_REMOVE_MARKERS = (
     "lÃ¶schen",
     "loeschen",
     "abbrechen",
+)
+ATTACHMENT_PREVIEW_CSS_CANDIDATES = [
+    "img",
+    "[data-testid*='attachment']",
+    "[data-testid*='upload']",
+    "[data-testid*='file']",
+    "[data-testid*='preview']",
+    "[aria-label*='attachment']",
+    "[aria-label*='Attachment']",
+    "[aria-label*='Anhang']",
+    "[aria-label*='Bild']",
+    "[aria-label*='image']",
+    "[aria-label*='Image']",
+    "[class*='attachment']",
+    "[class*='upload']",
+    "[class*='preview']",
+]
+ATTACHMENT_UPLOAD_FAILURE_MARKERS = (
+    "attachment_preview_missing",
+    "image upload did not appear",
+    "could not upload image attachments",
+    "could not upload file attachments",
+    "file upload",
+    "file input",
 )
 
 
@@ -967,7 +1001,7 @@ return fileCount === 0 && !String(input.value || '');
             root = None
         return root or composer
 
-    def _pending_attachment_count(self) -> int:
+    def _attachment_preview_count(self) -> int:
         root = self._composer_root()
         if root is None:
             return 0
@@ -975,23 +1009,83 @@ return fileCount === 0 && !String(input.value || '');
             count = self.driver.execute_script(
                 """
 const root = arguments[0];
-if (!root) {
+const selectors = arguments[1] || [];
+if (!root || !selectors.length) {
   return 0;
 }
-const selectors = [
-  'img',
-  '[data-testid*="attachment"]',
-  '[data-testid*="upload"]',
-  '[aria-label*="attachment"]',
-  '[aria-label*="Anhang"]'
-];
-let total = 0;
-for (const selector of selectors) {
-  total += root.querySelectorAll(selector).length;
+const scopes = [root];
+const main = root.closest('main');
+if (main && main !== root) {
+  scopes.push(main);
 }
-return total;
+const nodes = new Set();
+const popupSelector = [
+  '[role="dialog"]',
+  '[aria-modal="true"]',
+  '[role="menu"]',
+  '[role="menuitem"]',
+  '[role="listbox"]',
+  '[data-radix-popper-content-wrapper]'
+].join(',');
+const controlSelector = [
+  'button',
+  'input',
+  'textarea',
+  'select',
+  'option',
+  'label',
+  'summary',
+  'a[href]',
+  '[role="button"]',
+  '[role="menuitem"]',
+  '[role="option"]'
+].join(',');
+const previewEvidenceSelector = [
+  'img',
+  'canvas',
+  'video',
+  '[data-testid*="attachment"]',
+  '[data-testid*="preview"]',
+  '[aria-label*="attachment"]',
+  '[aria-label*="Attachment"]',
+  '[aria-label*="Anhang"]',
+  '[class*="attachment"]',
+  '[class*="preview"]'
+].join(',');
+const uploadControlPattern = /\\b(upload|file input|choose file|attach file|datei hochladen|datei ausw|anhang hochladen)\\b/i;
+for (const scope of scopes) {
+  for (const selector of selectors) {
+    for (const node of scope.querySelectorAll(selector)) {
+      if (node.closest('[data-message-author-role]') || (node.closest(popupSelector) && !root.contains(node))) {
+        continue;
+      }
+      if (node.matches(controlSelector) || (node.closest(controlSelector) && !node.matches('img, canvas, video'))) {
+        continue;
+      }
+      const style = window.getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      const hidden = style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) === 0;
+      if (hidden || (rect.width <= 0 && rect.height <= 0 && node.tagName !== 'IMG')) {
+        continue;
+      }
+      const text = [
+        node.getAttribute('aria-label') || '',
+        node.getAttribute('title') || '',
+        node.getAttribute('data-testid') || '',
+        node.textContent || ''
+      ].join(' ').trim();
+      const hasPreviewEvidence = node.matches(previewEvidenceSelector) || !!node.querySelector(previewEvidenceSelector);
+      const looksLikeUploadControl = uploadControlPattern.test(text);
+      if (hasPreviewEvidence && !looksLikeUploadControl) {
+        nodes.add(node);
+      }
+    }
+  }
+}
+return nodes.size;
 """,
                 root,
+                ATTACHMENT_PREVIEW_CSS_CANDIDATES,
             )
         except Exception:
             return 0
@@ -999,6 +1093,31 @@ return total;
             return int(count or 0)
         except Exception:
             return 0
+
+    def _selected_file_input_count(self) -> int:
+        try:
+            count = self.driver.execute_script(
+                """
+const selector = arguments[0];
+let total = 0;
+for (const input of document.querySelectorAll(selector)) {
+  if (input.files && input.files.length) {
+    total += Number(input.files.length || 0);
+  }
+}
+return total;
+""",
+                FILE_INPUT_CSS,
+            )
+        except Exception:
+            return 0
+        try:
+            return int(count or 0)
+        except Exception:
+            return 0
+
+    def _pending_attachment_count(self) -> int:
+        return self._attachment_preview_count()
 
     def _clear_pending_attachments(self) -> int:
         removed = 0
@@ -1069,6 +1188,7 @@ return total;
                 "reason": reason,
                 "url": self._current_url(),
                 "pending_attachment_count": self._pending_attachment_count(),
+                "selected_file_input_count": self._selected_file_input_count(),
                 "visible_dialog_count": len(self._visible_dialogs()),
             }
             (snapshot_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1102,11 +1222,16 @@ return total;
         self._reload_conversation_for_clean_composer()
         self._dismiss_blocking_ui()
 
+    def _is_attachment_upload_failure(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(marker in message for marker in ATTACHMENT_UPLOAD_FAILURE_MARKERS)
+
     def _compose_and_send_prompt(self, prompt: str, attachments: list[Path] | None, new_chat: bool) -> None:
         last_error: Exception | None = None
+        retry_new_chat = new_chat
         for attempt in range(2):
             if attempt > 0:
-                self._reset_before_compose_retry(new_chat=new_chat)
+                self._reset_before_compose_retry(new_chat=retry_new_chat)
             try:
                 if attachments:
                     self.attach_files(attachments)
@@ -1118,6 +1243,7 @@ return total;
             except Exception as exc:
                 last_error = exc
                 if attempt == 0:
+                    retry_new_chat = new_chat or (bool(attachments) and self._is_attachment_upload_failure(exc))
                     continue
                 raise
         if last_error is not None:
