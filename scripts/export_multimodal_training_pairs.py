@@ -114,6 +114,7 @@ OBJECTIVE_LIMITATIONS = (
     ("cropped edges limit full chart context", ("cropped", "crop", "edges limit", "broader context", "full context", "full session visibility")),
     ("some header or indicator text is partially obscured", ("header text", "indicator", "timeframe information", "header and indicator")),
 )
+VISIBLE_LABEL_SEPARATOR_PATTERN = re.compile(r"\s*[·•∙,|]\s*|\s+[+\-]\s+")
 
 
 def parse_args() -> argparse.Namespace:
@@ -310,6 +311,20 @@ def detect_venue(text: str) -> str:
     return ""
 
 
+def normalize_visible_label_text(text: str) -> str:
+    cleaned = normalize_whitespace(text)
+    if not cleaned:
+        return ""
+    cleaned = cleaned.replace("•", "·").replace("∙", "·")
+    cleaned = cleaned.replace("–", "-").replace("—", "-").replace("−", "-")
+    cleaned = re.sub(r"\s*\+\s*", " + ", cleaned)
+    cleaned = re.sub(r"\s*·\s*", " · ", cleaned)
+    cleaned = re.sub(r"\s*,\s*", ", ", cleaned)
+    cleaned = re.sub(r"\s*\|\s*", " | ", cleaned)
+    cleaned = re.sub(r"\s+-\s+", " - ", cleaned)
+    return normalize_whitespace(cleaned)
+
+
 def canonicalize_timeframe_token(token: str) -> str:
     normalized = ascii_fold(token).lower()
     normalized = normalized.replace("minutes", "m").replace("minute", "m")
@@ -339,7 +354,54 @@ def canonicalize_timeframe_token(token: str) -> str:
 
 
 def split_visible_label_parts(label_line: str) -> list[str]:
-    return [part.strip() for part in re.split(r"\s+\-\s+|,|\|", label_line) if part.strip()]
+    normalized = normalize_visible_label_text(label_line)
+    parts: list[str] = []
+    for raw_part in VISIBLE_LABEL_SEPARATOR_PATTERN.split(normalized):
+        cleaned = normalize_whitespace(str(raw_part).strip("+-·|, "))
+        if cleaned:
+            parts.append(cleaned)
+    return parts
+
+
+def extract_timeframes_from_text(text: str) -> list[str]:
+    normalized = ascii_fold(text).lower()
+    candidates: list[str] = []
+    for token in re.findall(r"\b\d+\s*(?:m|h|d|w|mo)?\b|\b(?:m|h|d|w|mn)\s*\d+\b", normalized):
+        timeframe = canonicalize_timeframe_token(token)
+        if timeframe:
+            candidates.append(timeframe)
+    return unique_preserving_order(candidates)
+
+
+def timeframe_display_token(timeframe: str) -> str:
+    minute_match = re.fullmatch(r"M(\d+)", timeframe)
+    if minute_match:
+        return minute_match.group(1)
+    hour_match = re.fullmatch(r"H(\d+)", timeframe)
+    if hour_match:
+        return f"{hour_match.group(1)}h"
+    day_match = re.fullmatch(r"D(\d+)", timeframe)
+    if day_match:
+        return f"{day_match.group(1)}d"
+    week_match = re.fullmatch(r"W(\d+)", timeframe)
+    if week_match:
+        return f"{week_match.group(1)}w"
+    if timeframe == "MN1":
+        return "1mo"
+    return timeframe
+
+
+def canonical_visible_text(raw_visible_text: str, instrument_name: str, timeframes: list[str], venue: str, primary_symbol: str) -> str:
+    label = instrument_name or primary_symbol
+    parts = [label]
+    if timeframes:
+        parts.append("/".join(timeframe_display_token(value) for value in timeframes[:2]))
+    if venue:
+        parts.append(venue)
+    normalized_parts = [normalize_whitespace(part) for part in parts if normalize_whitespace(part)]
+    if len(normalized_parts) >= 2:
+        return " - ".join(normalized_parts)
+    return normalize_visible_label_text(raw_visible_text)
 
 
 def lookup_symbol_from_display_name(instrument_name: str) -> str:
@@ -387,7 +449,7 @@ def parse_visible_label_fields(label_line: str) -> dict[str, Any]:
     if not label_line:
         return {}
 
-    candidates = [candidate.strip() for candidate in label_line.split(";") if candidate.strip()]
+    candidates = [normalize_visible_label_text(candidate) for candidate in label_line.split(";") if normalize_visible_label_text(candidate)]
     if not candidates:
         return {}
 
@@ -421,6 +483,8 @@ def parse_visible_label_fields(label_line: str) -> dict[str, Any]:
 
     if not venue:
         venue = detect_venue(selected)
+    if not timeframes:
+        timeframes = extract_timeframes_from_text(selected)
 
     return {
         "instrument_name": instrument_name,
@@ -486,8 +550,11 @@ def trust_ocr_backed_timeframes(candidates: list[str], source_name: str, visible
 
 
 def derive_grounded_fields(annotation: dict[str, Any]) -> dict[str, Any]:
-    visible_label_text = extract_visible_labels_line(visible_clean_text(annotation))
-    parsed_labels = parse_visible_label_fields(visible_label_text)
+    raw_visible_label_text = first_non_empty(
+        extract_visible_labels_line(visible_clean_text(annotation)),
+        get_nested(annotation, "llm_enrichment", "structured_response", "visible_text"),
+    )
+    parsed_labels = parse_visible_label_fields(raw_visible_label_text)
     sources = field_sources(annotation)
     visible_fields = normalized_visible_fields(annotation)
     ocr_text = visible_ocr_text(annotation)
@@ -508,31 +575,39 @@ def derive_grounded_fields(annotation: dict[str, Any]) -> dict[str, Any]:
 
     instrument_name = first_non_empty(
         parsed_labels.get("instrument_name"),
-        trust_ocr_backed_scalar(normalized_instrument_name, sources.get("instrument_name", ""), visible_label_text, ocr_text),
+        trust_ocr_backed_scalar(normalized_instrument_name, sources.get("instrument_name", ""), raw_visible_label_text, ocr_text),
     )
 
     venue = first_non_empty(
         parsed_labels.get("venue"),
-        trust_ocr_backed_scalar(normalized_venue, sources.get("venue", ""), visible_label_text, ocr_text),
+        trust_ocr_backed_scalar(normalized_venue, sources.get("venue", ""), raw_visible_label_text, ocr_text),
     )
 
     timeframes = unique_preserving_order(
         normalize_string_list(parsed_labels.get("timeframes"))
-        or trust_ocr_backed_timeframes(normalized_timeframes, sources.get("timeframes", ""), visible_label_text, ocr_text)
+        or trust_ocr_backed_timeframes(normalized_timeframes, sources.get("timeframes", ""), raw_visible_label_text, ocr_text)
     )
 
     primary_symbol = first_non_empty(
         parsed_labels.get("primary_symbol"),
         infer_symbol_from_instrument_name(instrument_name),
     )
-    if not primary_symbol and normalized_primary_symbol and symbol_is_visible(normalized_primary_symbol, visible_label_text, ocr_text):
+    if not primary_symbol and normalized_primary_symbol and symbol_is_visible(normalized_primary_symbol, raw_visible_label_text, ocr_text):
         primary_symbol = normalized_primary_symbol
 
     if not instrument_name and primary_symbol:
         instrument_name = SYMBOL_DISPLAY_NAMES.get(primary_symbol, "")
 
+    visible_text = canonical_visible_text(
+        raw_visible_label_text,
+        instrument_name=instrument_name,
+        timeframes=timeframes,
+        venue=venue,
+        primary_symbol=primary_symbol,
+    )
+
     return {
-        "visible_text": visible_label_text,
+        "visible_text": visible_text,
         "primary_symbol": primary_symbol,
         "instrument_name": instrument_name,
         "venue": venue,
@@ -681,7 +756,7 @@ def build_short_caption(asset_type: str, grounded_fields: dict[str, Any], key_vi
         if timeframe:
             base += f" with visible timeframe {timeframe}"
     else:
-        base = f"{subject} {timeframe} {noun}".strip()
+        base = " ".join(part for part in (subject, timeframe, noun) if part)
     modifiers = caption_modifiers(key_visual_elements)
     if modifiers:
         prefix = "Annotated " if any(value in modifiers for value in ("highlighted swing markers", "directional arrows", "shaded rectangular overlays")) else ""

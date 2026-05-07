@@ -641,6 +641,103 @@ class EnrichmentTests(unittest.TestCase):
             ["ocr_encoding_artifacts"],
         )
 
+    def test_apply_asset_llm_enrichment_rescues_medium_confidence_chart_with_strong_visible_header(self) -> None:
+        annotation = {
+            "caption": "old caption",
+            "summary": "old summary",
+            "description": "old description",
+            "clean_text": "old clean text",
+            "review_required": True,
+            "page_type_confidence": 0.0,
+            "asset_type": "chart",
+            "page_type": "unknown",
+            "ocr_text": "\u00a35,\nW il | 100",
+            "extraction_methods": ["ocr"],
+            "primary_symbol": None,
+            "instrument_name": "Euro / US-Dollar",
+            "venue": "FXCM",
+            "symbols": [],
+            "timeframes": ["M5"],
+            "labels": {
+                "contains_symbol": False,
+                "contains_timeframe": True,
+                "likely_chart": True,
+                "text_density": "medium",
+            },
+            "target_json": {
+                "description": {
+                    "short_caption": "old caption",
+                    "visual_summary": "old visual summary",
+                    "context_augmented_summary": "old context summary",
+                    "key_visual_elements": [],
+                    "limitations": [],
+                },
+                "observed": {
+                    "visible_in_crop": {
+                        "clean_text": "Asset type: chart\nVisible labels: Euro / US-Dollar - 5 - FXCM",
+                        "normalized_fields": {
+                            "primary_symbol": None,
+                            "instrument_name": "Euro / US-Dollar",
+                            "venue": "FXCM",
+                            "symbols": [],
+                            "timeframes": ["M5"],
+                        },
+                    }
+                },
+                "provenance": {
+                    "extraction_methods": ["ocr"],
+                    "field_sources": {
+                        "primary_symbol": "missing",
+                        "instrument_name": "llm_enrichment",
+                        "venue": "llm_enrichment",
+                        "symbols": "missing",
+                        "timeframes": "llm_enrichment",
+                    },
+                    "quality": {
+                        "annotation_quality": "low",
+                        "page_type_confidence": 0.0,
+                    },
+                    "review": {
+                        "required": True,
+                        "reasons": [
+                            "low_page_type_confidence",
+                            "missing_primary_symbol",
+                            "llm_confidence_medium",
+                            "llm_reported_uncertainty",
+                        ],
+                    },
+                },
+            },
+        }
+
+        updated = apply_asset_llm_enrichment(
+            annotation=annotation,
+            response_payload={
+                "short_caption": "TradingView forex chart with highlighted trading ranges and stop-loss style zones",
+                "visual_summary": "A TradingView candlestick chart displays intraday forex price action across multiple highlighted regions.",
+                "context_augmented_summary": "The image appears to show an intraday EUR/USD chart from FXCM.",
+                "limitations": [
+                    "symbol and timeframe text are difficult to read",
+                    "OCR output is heavily distorted",
+                    "some price labels are blurry",
+                    "chart edges and interface elements are partially cropped",
+                ],
+                "visible_text": "Euro / US-Dollar - 5 - FXCM",
+                "confidence": "medium",
+            },
+            raw_response_text='{"short_caption":"TradingView forex chart with highlighted trading ranges and stop-loss style zones"}',
+            prompt="describe image",
+            language="en",
+            model_slug="gpt-test",
+            conversation_url="https://chatgpt.com/c/test",
+        )
+
+        self.assertEqual(updated["primary_symbol"], "EURUSD")
+        self.assertIn("EURUSD", updated["symbols"])
+        self.assertFalse(updated["review_required"])
+        self.assertEqual(updated["target_json"]["provenance"]["quality"]["annotation_quality"], "medium")
+        self.assertEqual(updated["target_json"]["provenance"]["review"]["reasons"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -191,7 +191,7 @@ class MultimodalTrainingExportTests(unittest.TestCase):
             self.assertEqual(payload["task_type"], "strict_image_to_json")
             self.assertEqual(payload["response"]["primary_symbol"], "BTCUSDT")
             self.assertEqual(payload["response"]["short_caption"], "BTCUSDT H1 chart")
-            self.assertEqual(payload["response"]["visible_text"], "Bitcoin / TetherUS, 1h, BINANCE")
+            self.assertEqual(payload["response"]["visible_text"], "Bitcoin / TetherUS - 1h - BINANCE")
 
             index_rows = [json.loads(line) for line in index_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(len(index_rows), 1)

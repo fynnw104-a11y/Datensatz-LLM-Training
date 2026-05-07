@@ -31,6 +31,27 @@ KNOWN_VENUES = (
     "OANDA",
     "OKX",
 )
+INSTRUMENT_COMPONENT_ALIASES = {
+    "aud": "AUD",
+    "australian dollar": "AUD",
+    "bitcoin": "BTC",
+    "british pound": "GBP",
+    "btc": "BTC",
+    "cad": "CAD",
+    "canadian dollar": "CAD",
+    "chf": "CHF",
+    "eur": "EUR",
+    "euro": "EUR",
+    "gbp": "GBP",
+    "japanese yen": "JPY",
+    "jpy": "JPY",
+    "new zealand dollar": "NZD",
+    "nzd": "NZD",
+    "usd": "USD",
+    "us dollar": "USD",
+    "us-dollar": "USD",
+    "yen": "JPY",
+}
 
 
 def _normalize_prompt_value(value: Any) -> Any:
@@ -275,6 +296,67 @@ def _extract_instrument_name_from_visible_text(visible_text: str) -> str:
     return candidate
 
 
+def _resolve_instrument_component(text: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", _ascii_fold(text).lower()).strip()
+    if not normalized:
+        return ""
+    for alias in sorted(INSTRUMENT_COMPONENT_ALIASES, key=len, reverse=True):
+        if alias in normalized:
+            return INSTRUMENT_COMPONENT_ALIASES[alias]
+    compact = re.sub(r"\s+", "", normalized).upper()
+    if compact in FOREX_CODES:
+        return compact
+    return ""
+
+
+def _infer_symbol_from_instrument_name(instrument_name: str) -> str:
+    candidates = _extract_symbol_candidates_from_text(instrument_name)
+    if candidates:
+        return candidates[0]
+
+    parts = [part.strip() for part in re.split(r"\s*/\s*", instrument_name, maxsplit=1) if part.strip()]
+    if len(parts) != 2:
+        return ""
+    base_symbol = _resolve_instrument_component(parts[0])
+    quote_symbol = _resolve_instrument_component(parts[1])
+    if base_symbol and quote_symbol:
+        return base_symbol + quote_symbol
+    return ""
+
+
+def _has_strong_visible_header_grounding(annotation: dict[str, Any], description: dict[str, Any]) -> bool:
+    visible_text = str(description.get("visible_text") or "").strip()
+    if not visible_text:
+        return False
+
+    instrument_name = _first_non_empty(
+        annotation.get("instrument_name"),
+        _extract_instrument_name_from_visible_text(visible_text),
+    )
+    venue = _first_non_empty(
+        annotation.get("venue"),
+        *(_extract_venue_candidates_from_text(visible_text) or []),
+    )
+    timeframes = [str(item).strip() for item in annotation.get("timeframes", []) if str(item).strip()]
+    if not timeframes:
+        timeframes = _extract_timeframe_candidates_from_text(visible_text, prefer_visible_numeric=True)
+    primary_symbol = _first_non_empty(
+        annotation.get("primary_symbol"),
+        _infer_symbol_from_instrument_name(instrument_name),
+    )
+
+    labels = annotation.get("labels")
+    likely_chart = False
+    if isinstance(labels, dict):
+        likely_chart = bool(labels.get("likely_chart") or labels.get("contains_timeframe"))
+    if not likely_chart:
+        likely_chart = str(annotation.get("asset_type") or "").strip().lower() == "chart"
+    if not likely_chart:
+        likely_chart = str(annotation.get("page_type") or "").strip().lower() == "chart"
+
+    return bool(likely_chart and instrument_name and venue and timeframes and primary_symbol)
+
+
 def _has_ocr_encoding_artifacts(text: object) -> bool:
     value = str(text or "")
     if any(marker in value for marker in ("\ufffd", "Ã", "Â", "â€", "Ãƒ", "Ã‚", "Ã¢â‚¬", "Ã¯Â¿Â½")):
@@ -403,6 +485,9 @@ def _backfill_market_fields_from_llm(annotation: dict[str, Any], description: di
     visible_timeframes = _extract_timeframe_candidates_from_text(visible_text, prefer_visible_numeric=True)
     bundle_timeframes = visible_timeframes or _extract_timeframe_candidates_from_text(bundle_text)
     instrument_name = _extract_instrument_name_from_visible_text(visible_text)
+    inferred_symbol = _infer_symbol_from_instrument_name(instrument_name or str(annotation.get("instrument_name") or ""))
+    if inferred_symbol and inferred_symbol not in symbol_candidates:
+        symbol_candidates.insert(0, inferred_symbol)
 
     if not annotation.get("primary_symbol") and symbol_candidates:
         annotation["primary_symbol"] = symbol_candidates[0]
@@ -456,7 +541,7 @@ def _llm_reports_uncertainty(limitations: list[str]) -> bool:
     return any(any(marker in item.lower() for marker in uncertainty_markers) for item in limitations)
 
 
-def _llm_uncertainty_requires_review(description: dict[str, Any]) -> bool:
+def _llm_uncertainty_requires_review(annotation: dict[str, Any], description: dict[str, Any]) -> bool:
     limitations = description.get("limitations", [])
     if not _llm_reports_uncertainty(limitations):
         return False
@@ -480,6 +565,16 @@ def _llm_uncertainty_requires_review(description: dict[str, Any]) -> bool:
         "price values are unclear",
         "indicator details are not fully legible",
     )
+    if _has_strong_visible_header_grounding(annotation, description) and confidence in {"high", "medium"}:
+        minor_markers = minor_markers + (
+            "distorted",
+            "difficult to read",
+            "difficult to verify",
+            "symbol and timeframe text",
+            "price labels",
+            "interface elements",
+            "ocr output",
+        )
     normalized_limitations = [
         _ascii_fold(normalize_typographic_punctuation(str(item))).lower()
         for item in limitations
@@ -498,10 +593,12 @@ def _build_enrichment_review_reasons(annotation: dict[str, Any], description: di
 
     page_type_confidence = annotation.get("page_type_confidence")
     confidence = str(description.get("confidence") or "").strip().lower()
+    strong_visible_grounding = _has_strong_visible_header_grounding(annotation, description)
     if (
         isinstance(page_type_confidence, (int, float))
         and float(page_type_confidence) < 0.45
         and confidence != "high"
+        and not strong_visible_grounding
     ):
         reasons.append("low_page_type_confidence")
 
@@ -512,9 +609,9 @@ def _build_enrichment_review_reasons(annotation: dict[str, Any], description: di
     if not annotation.get("timeframes"):
         reasons.append("missing_timeframe")
 
-    if confidence in {"medium", "low"}:
+    if confidence == "low" or (confidence == "medium" and not strong_visible_grounding):
         reasons.append(f"llm_confidence_{confidence}")
-    if _llm_uncertainty_requires_review(description):
+    if _llm_uncertainty_requires_review(annotation, description):
         reasons.append("llm_reported_uncertainty")
     return _unique_preserving_order(reasons)
 
@@ -537,18 +634,27 @@ def _infer_enrichment_annotation_quality(annotation: dict[str, Any], description
         score -= 1
 
     page_type_confidence = annotation.get("page_type_confidence")
-    if isinstance(page_type_confidence, (int, float)) and float(page_type_confidence) < 0.45 and confidence != "high":
+    strong_visible_grounding = _has_strong_visible_header_grounding(annotation, description)
+    if (
+        isinstance(page_type_confidence, (int, float))
+        and float(page_type_confidence) < 0.45
+        and confidence != "high"
+        and not strong_visible_grounding
+    ):
         score -= 1
     if _has_ocr_encoding_artifacts(annotation.get("ocr_text")):
         score -= 1
-    if _llm_uncertainty_requires_review(description):
+    if _llm_uncertainty_requires_review(annotation, description):
         score -= 1
 
+    inferred_quality = "low"
     if score >= 4:
-        return "high"
-    if score >= 2:
+        inferred_quality = "high"
+    elif score >= 2:
+        inferred_quality = "medium"
+    if confidence == "medium" and inferred_quality == "high":
         return "medium"
-    return "low"
+    return inferred_quality
 
 
 def build_enriched_clean_text(description: dict[str, Any], annotation: dict[str, Any]) -> str:
