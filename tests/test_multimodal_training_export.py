@@ -14,20 +14,24 @@ from export_multimodal_training_pairs import build_training_response, export_tra
 
 
 class MultimodalTrainingExportTests(unittest.TestCase):
-    def test_build_training_response_prefers_llm_but_only_uses_visible_normalized_fields(self) -> None:
+    def test_build_training_response_uses_visible_label_grounding_and_repairs_conflicts(self) -> None:
         annotation = {
             "pair_type": "visual_asset",
-            "asset_type": "chart",
-            "caption": "Fallback caption",
+            "asset_type": "figure",
+            "page_type": "unknown",
+            "caption": "Fallback candlestick chart",
             "summary": "Fallback summary",
             "review_required": False,
             "llm_enrichment": {
                 "structured_response": {
-                    "short_caption": "BTCUSDT H1 bearish chart",
-                    "visual_summary": "A bearish BTCUSDT chart with highlighted BOS zones.",
-                    "visible_text": "Bitcoin / TetherUS, 1h, BINANCE",
-                    "key_visual_elements": ["candlesticks", "price scale", "BOS labels"],
-                    "limitations": ["small header text"],
+                    "short_caption": "EURUSD H1 bearish chart",
+                    "visual_summary": "A bearish EURUSD chart with highlighted BOS zones.",
+                    "visible_text": "Euro / US-Dollar, 1h, FXCM",
+                    "key_visual_elements": ["candlesticks", "price scale", "highlighted circles"],
+                    "limitations": [
+                        "annotation meaning is inferred rather than explicitly labeled",
+                        "exact price values are difficult to read precisely",
+                    ],
                     "confidence": "high",
                 }
             },
@@ -35,29 +39,47 @@ class MultimodalTrainingExportTests(unittest.TestCase):
                 "observed": {
                     "visible_in_crop": {
                         "normalized_fields": {
-                            "primary_symbol": "BTCUSDT",
-                            "instrument_name": "Bitcoin / TetherUS",
-                            "venue": "BINANCE",
-                            "symbols": ["BTCUSDT"],
-                            "timeframes": ["H1"],
+                            "primary_symbol": "EURUSD",
+                            "instrument_name": "Euro / US-Dollar",
+                            "venue": "FXCM",
+                            "symbols": ["EURUSD"],
+                            "timeframes": ["M5"],
                         },
-                        "clean_text": "Visible labels: Bitcoin / TetherUS, 1h, BINANCE",
+                        "clean_text": "Asset type: chart\nTimeframes: H1\nVisible labels: Euro / US-Dollar - 5 - FXCM",
+                        "visual_elements": ["generic_figure", "timeframe_label", "price_axis_or_scale"],
                     }
                 },
-                "provenance": {"quality": {"annotation_quality": "high"}},
+                "provenance": {
+                    "quality": {"annotation_quality": "high"},
+                    "field_sources": {
+                        "primary_symbol": "llm_enrichment",
+                        "instrument_name": "llm_enrichment",
+                        "venue": "llm_enrichment",
+                        "symbols": "llm_enrichment",
+                        "timeframes": "llm_enrichment",
+                    },
+                },
             },
         }
 
         response = build_training_response(annotation)
 
         self.assertEqual(response["asset_type"], "chart")
-        self.assertEqual(response["primary_symbol"], "BTCUSDT")
-        self.assertEqual(response["venue"], "BINANCE")
-        self.assertEqual(response["timeframes"], ["H1"])
-        self.assertEqual(response["short_caption"], "BTCUSDT H1 bearish chart")
-        self.assertEqual(response["visual_summary"], "A bearish BTCUSDT chart with highlighted BOS zones.")
-        self.assertEqual(response["visible_text"], "Bitcoin / TetherUS, 1h, BINANCE")
-        self.assertEqual(response["key_visual_elements"], ["candlesticks", "price scale", "BOS labels"])
+        self.assertEqual(response["primary_symbol"], "EURUSD")
+        self.assertEqual(response["instrument_name"], "Euro / US-Dollar")
+        self.assertEqual(response["venue"], "FXCM")
+        self.assertEqual(response["timeframes"], ["M5"])
+        self.assertEqual(response["visible_text"], "Euro / US-Dollar - 5 - FXCM")
+        self.assertEqual(response["short_caption"], "Annotated EURUSD M5 chart with highlighted swing markers")
+        self.assertEqual(
+            response["visual_summary"],
+            'Chart for EURUSD on M5. Visible elements include candlestick chart, price scale, and highlighted swing markers. Visible label text includes "Euro / US-Dollar - 5 - FXCM".',
+        )
+        self.assertEqual(
+            response["key_visual_elements"],
+            ["candlestick chart", "price scale", "highlighted swing markers", "timeframe label"],
+        )
+        self.assertEqual(response["limitations"], ["exact price values are difficult to read precisely"])
 
     def test_should_export_annotation_filters_missing_llm_and_low_quality(self) -> None:
         annotation = {
@@ -110,8 +132,8 @@ class MultimodalTrainingExportTests(unittest.TestCase):
                             "short_caption": "BTCUSDT H1 chart",
                             "visual_summary": "A chart with candles and BOS labels.",
                             "visible_text": "Bitcoin / TetherUS, 1h, BINANCE",
-                            "key_visual_elements": ["candlesticks", "BOS labels"],
-                            "limitations": [],
+                            "key_visual_elements": ["candlesticks", "price scale", "BOS labels"],
+                            "limitations": ["small header text"],
                             "confidence": "high",
                         }
                     },
@@ -126,9 +148,19 @@ class MultimodalTrainingExportTests(unittest.TestCase):
                                     "timeframes": ["H1"],
                                 },
                                 "clean_text": "Visible labels: Bitcoin / TetherUS, 1h, BINANCE",
+                                "visual_elements": ["chart_panel", "price_axis_or_scale"],
                             }
                         },
-                        "provenance": {"quality": {"annotation_quality": "high"}},
+                        "provenance": {
+                            "quality": {"annotation_quality": "high"},
+                            "field_sources": {
+                                "primary_symbol": "llm_enrichment",
+                                "instrument_name": "llm_enrichment",
+                                "venue": "llm_enrichment",
+                                "symbols": "llm_enrichment",
+                                "timeframes": "llm_enrichment",
+                            },
+                        },
                     },
                 },
                 ensure_ascii=False,
@@ -153,15 +185,20 @@ class MultimodalTrainingExportTests(unittest.TestCase):
             self.assertTrue(exported_image.exists())
             self.assertTrue((output_dir / "_instruction.txt").exists())
             self.assertEqual(manifest["exported_pairs"], 1)
+            self.assertEqual(manifest["grounding_profile"], "strict_visible_grounding")
 
             payload = json.loads(exported_json.read_text(encoding="utf-8"))
             self.assertEqual(payload["task_type"], "strict_image_to_json")
             self.assertEqual(payload["response"]["primary_symbol"], "BTCUSDT")
             self.assertEqual(payload["response"]["short_caption"], "BTCUSDT H1 chart")
+            self.assertEqual(payload["response"]["visible_text"], "Bitcoin / TetherUS, 1h, BINANCE")
 
             index_rows = [json.loads(line) for line in index_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(len(index_rows), 1)
             self.assertTrue(index_rows[0]["json_path"].endswith("asset_01.json"))
+            self.assertEqual(index_rows[0]["exported_asset_type"], "chart")
+            self.assertEqual(index_rows[0]["exported_primary_symbol"], "BTCUSDT")
+            self.assertEqual(index_rows[0]["exported_timeframes"], ["H1"])
         finally:
             shutil.rmtree(temp_root, ignore_errors=True)
 

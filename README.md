@@ -174,7 +174,9 @@ Wichtige Eigenschaften:
 - standardmaessig werden Assets mit `review_required=true` ausgeschlossen
 - pro Paar wird nur ein kleines Trainings-JSON gespeichert, nicht die volle Audit-Struktur
 - die Bilder werden im Exportordner hart verlinkt, wenn das Dateisystem es erlaubt; sonst kopiert
-- der Export nutzt nur sichtbare, crop-nahe Felder fuer strukturierte Werte und bevorzugt die LLM-Visual-Beschreibung fuer Caption/Summary
+- der Export repariert strukturierte Felder bevorzugt aus sichtbaren Labelzeilen und OCR-nahen Signalen statt aus Kontext
+- Caption, Summary, Visual Elements und Limitations werden auf sichtbare, objektive Formulierungen verdichtet
+- widerspruechliche Felder wie sichtbares `- 5 - FXCM` vs. falsch normalisiertes `H1` werden im Export auf die sichtbare Variante gezogen
 
 Nuetzliche Optionen:
 
