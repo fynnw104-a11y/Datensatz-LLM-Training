@@ -11,6 +11,26 @@ from typing import Any
 from text_normalization import normalize_typographic_punctuation, repair_common_mojibake
 
 PROMPT_SCHEMA_VERSION = "1.0"
+FOREX_CODES = {
+    "AUD",
+    "CAD",
+    "CHF",
+    "CNH",
+    "EUR",
+    "GBP",
+    "JPY",
+    "NZD",
+    "USD",
+}
+KNOWN_VENUES = (
+    "BINANCE",
+    "BYBIT",
+    "COINBASE",
+    "FXCM",
+    "KRAKEN",
+    "OANDA",
+    "OKX",
+)
 
 
 def _normalize_prompt_value(value: Any) -> Any:
@@ -150,6 +170,111 @@ def _ascii_fold(value: str) -> str:
     return normalized.encode("ascii", "ignore").decode("ascii")
 
 
+def _normalized_llm_text_bundle(description: dict[str, Any]) -> str:
+    text_parts = [
+        description.get("visible_text"),
+        description.get("short_caption"),
+        description.get("context_augmented_summary"),
+        description.get("visual_summary"),
+    ]
+    training_tags = description.get("training_tags", [])
+    if isinstance(training_tags, list) and training_tags:
+        text_parts.append(" ".join(str(item) for item in training_tags if str(item).strip()))
+    return "\n".join(
+        normalize_typographic_punctuation(repair_common_mojibake(str(part))).strip()
+        for part in text_parts
+        if isinstance(part, str) and part.strip()
+    )
+
+
+def _extract_symbol_candidates_from_text(text: str) -> list[str]:
+    if not text:
+        return []
+
+    upper_text = _ascii_fold(text).upper()
+    candidates: list[str] = []
+
+    for base, quote in re.findall(r"\b([A-Z]{3})\s*/\s*([A-Z]{3})\b", upper_text):
+        if base in FOREX_CODES and quote in FOREX_CODES:
+            candidates.append(base + quote)
+
+    for token in re.findall(r"\b([A-Z]{6})\b", upper_text):
+        if token[:3] in FOREX_CODES and token[3:] in FOREX_CODES:
+            candidates.append(token)
+
+    for token in re.findall(r"\b([A-Z]{2,10}USDT|[A-Z]{2,10}USD)\b", upper_text):
+        candidates.append(token)
+
+    return _unique_preserving_order(candidates)
+
+
+def _extract_venue_candidates_from_text(text: str) -> list[str]:
+    if not text:
+        return []
+    upper_text = _ascii_fold(text).upper()
+    return [venue for venue in KNOWN_VENUES if venue in upper_text]
+
+
+def _extract_timeframe_candidates_from_text(text: str, prefer_visible_numeric: bool = False) -> list[str]:
+    if not text:
+        return []
+
+    normalized = _ascii_fold(text).lower()
+    candidates: list[str] = []
+    pattern_map = [
+        ("M1", r"\b(m1|1m|1 minute|1-minute)\b"),
+        ("M5", r"\b(m5|5m|5 minute|5-minute)\b"),
+        ("M15", r"\b(m15|15m|15 minute|15-minute)\b"),
+        ("M30", r"\b(m30|30m|30 minute|30-minute)\b"),
+        ("H1", r"\b(h1|1h|1 hour|1-hour)\b"),
+        ("H4", r"\b(h4|4h|4 hour|4-hour)\b"),
+        ("D1", r"\b(d1|1d|daily)\b"),
+        ("W1", r"\b(w1|1w|weekly)\b"),
+    ]
+    for canonical, pattern in pattern_map:
+        if re.search(pattern, normalized):
+            candidates.append(canonical)
+
+    if prefer_visible_numeric:
+        visible_numeric_map = {
+            "1": "M1",
+            "3": "M3",
+            "5": "M5",
+            "15": "M15",
+            "30": "M30",
+            "60": "H1",
+            "240": "H4",
+        }
+        venue_pattern = "|".join(re.escape(venue.lower()) for venue in KNOWN_VENUES)
+        for raw_value, canonical in visible_numeric_map.items():
+            if re.search(rf"\b{re.escape(raw_value)}\b(?=\s*[,/|+-]?\s*(?:{venue_pattern})\b)", normalized):
+                candidates.append(canonical)
+
+    return _unique_preserving_order(candidates)
+
+
+def _extract_instrument_name_from_visible_text(visible_text: str) -> str:
+    if not visible_text or "/" not in visible_text:
+        return ""
+
+    normalized = normalize_typographic_punctuation(repair_common_mojibake(visible_text)).strip()
+    if not normalized:
+        return ""
+
+    separators = "|".join(re.escape(venue) for venue in KNOWN_VENUES)
+    candidate = re.split(
+        rf"\s*(?:,|-|\|)\s*(?:M\d+|H\d+|D1|W1|\d+|{separators})\b",
+        normalized,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip(" -|,")
+    if len(candidate) < 5:
+        return ""
+    if candidate.count("/") != 1:
+        return ""
+    return candidate
+
+
 def _has_ocr_encoding_artifacts(text: object) -> bool:
     value = str(text or "")
     if any(marker in value for marker in ("\ufffd", "Ã", "Â", "â€", "Ãƒ", "Ã‚", "Ã¢â‚¬", "Ã¯Â¿Â½")):
@@ -262,6 +387,61 @@ def _refresh_visible_in_crop_clean_text(existing_clean_text: object, annotation:
     return "\n".join(retained_lines).strip()
 
 
+def _backfill_market_fields_from_llm(annotation: dict[str, Any], description: dict[str, Any]) -> dict[str, bool]:
+    changed = {
+        "primary_symbol": False,
+        "instrument_name": False,
+        "venue": False,
+        "symbols": False,
+        "timeframes": False,
+    }
+    visible_text = str(description.get("visible_text") or "").strip()
+    bundle_text = _normalized_llm_text_bundle(description)
+
+    symbol_candidates = _extract_symbol_candidates_from_text(bundle_text)
+    venue_candidates = _extract_venue_candidates_from_text(visible_text) or _extract_venue_candidates_from_text(bundle_text)
+    visible_timeframes = _extract_timeframe_candidates_from_text(visible_text, prefer_visible_numeric=True)
+    bundle_timeframes = visible_timeframes or _extract_timeframe_candidates_from_text(bundle_text)
+    instrument_name = _extract_instrument_name_from_visible_text(visible_text)
+
+    if not annotation.get("primary_symbol") and symbol_candidates:
+        annotation["primary_symbol"] = symbol_candidates[0]
+        changed["primary_symbol"] = True
+
+    if not annotation.get("instrument_name") and instrument_name:
+        annotation["instrument_name"] = instrument_name
+        changed["instrument_name"] = True
+
+    if not annotation.get("venue") and venue_candidates:
+        annotation["venue"] = venue_candidates[0]
+        changed["venue"] = True
+
+    existing_symbols = [str(item).strip() for item in annotation.get("symbols", []) if str(item).strip()]
+    merged_symbols = _unique_preserving_order([*existing_symbols, *symbol_candidates])
+    if annotation.get("primary_symbol") and annotation["primary_symbol"] not in merged_symbols:
+        merged_symbols.insert(0, str(annotation["primary_symbol"]).strip())
+    if merged_symbols != existing_symbols:
+        annotation["symbols"] = merged_symbols
+        changed["symbols"] = True
+
+    existing_timeframes = [str(item).strip() for item in annotation.get("timeframes", []) if str(item).strip()]
+    if visible_timeframes:
+        timeframes = visible_timeframes
+    elif existing_timeframes:
+        timeframes = existing_timeframes
+    else:
+        timeframes = bundle_timeframes
+    if timeframes != existing_timeframes:
+        annotation["timeframes"] = timeframes
+        changed["timeframes"] = True
+
+    labels = annotation.get("labels")
+    if isinstance(labels, dict):
+        labels["contains_symbol"] = bool(annotation.get("primary_symbol") or annotation.get("symbols"))
+        labels["contains_timeframe"] = bool(annotation.get("timeframes"))
+    return changed
+
+
 def _llm_reports_uncertainty(limitations: list[str]) -> bool:
     uncertainty_markers = (
         "unclear",
@@ -276,6 +456,40 @@ def _llm_reports_uncertainty(limitations: list[str]) -> bool:
     return any(any(marker in item.lower() for marker in uncertainty_markers) for item in limitations)
 
 
+def _llm_uncertainty_requires_review(description: dict[str, Any]) -> bool:
+    limitations = description.get("limitations", [])
+    if not _llm_reports_uncertainty(limitations):
+        return False
+
+    confidence = str(description.get("confidence") or "").strip().lower()
+    visible_text = str(description.get("visible_text") or "").strip()
+    if confidence == "high" and visible_text:
+        return False
+    if not visible_text:
+        return True
+
+    minor_markers = (
+        "small text",
+        "small interface text",
+        "partially unreadable",
+        "partially illegible",
+        "cropped",
+        "blurry",
+        "image resolution",
+        "not fully legible",
+        "price values are unclear",
+        "indicator details are not fully legible",
+    )
+    normalized_limitations = [
+        _ascii_fold(normalize_typographic_punctuation(str(item))).lower()
+        for item in limitations
+        if str(item).strip()
+    ]
+    return not normalized_limitations or not all(
+        any(marker in item for marker in minor_markers) for item in normalized_limitations
+    )
+
+
 def _build_enrichment_review_reasons(annotation: dict[str, Any], description: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     labels = annotation.get("labels", {})
@@ -283,7 +497,12 @@ def _build_enrichment_review_reasons(annotation: dict[str, Any], description: di
         reasons.append("low_text_density")
 
     page_type_confidence = annotation.get("page_type_confidence")
-    if isinstance(page_type_confidence, (int, float)) and float(page_type_confidence) < 0.6:
+    confidence = str(description.get("confidence") or "").strip().lower()
+    if (
+        isinstance(page_type_confidence, (int, float))
+        and float(page_type_confidence) < 0.45
+        and confidence != "high"
+    ):
         reasons.append("low_page_type_confidence")
 
     if _has_ocr_encoding_artifacts(annotation.get("ocr_text")):
@@ -293,14 +512,10 @@ def _build_enrichment_review_reasons(annotation: dict[str, Any], description: di
     if not annotation.get("timeframes"):
         reasons.append("missing_timeframe")
 
-    confidence = str(description.get("confidence") or "").strip().lower()
     if confidence in {"medium", "low"}:
         reasons.append(f"llm_confidence_{confidence}")
-    if _llm_reports_uncertainty(description.get("limitations", [])):
+    if _llm_uncertainty_requires_review(description):
         reasons.append("llm_reported_uncertainty")
-
-    if annotation.get("review_required"):
-        reasons.insert(0, "auto_review_flag")
     return _unique_preserving_order(reasons)
 
 
@@ -322,11 +537,11 @@ def _infer_enrichment_annotation_quality(annotation: dict[str, Any], description
         score -= 1
 
     page_type_confidence = annotation.get("page_type_confidence")
-    if isinstance(page_type_confidence, (int, float)) and float(page_type_confidence) < 0.6:
+    if isinstance(page_type_confidence, (int, float)) and float(page_type_confidence) < 0.45 and confidence != "high":
         score -= 1
     if _has_ocr_encoding_artifacts(annotation.get("ocr_text")):
         score -= 1
-    if _llm_reports_uncertainty(description.get("limitations", [])):
+    if _llm_uncertainty_requires_review(description):
         score -= 1
 
     if score >= 4:
@@ -441,6 +656,7 @@ def apply_asset_llm_enrichment(
             description_block.get("limitations"),
         ),
     }
+    changed_market_fields = _backfill_market_fields_from_llm(updated, merged_description)
     clean_text = build_enriched_clean_text(merged_description, updated)
     top_level_summary = _first_non_empty(visual_summary, short_caption)
     top_level_description = _first_non_empty(context_summary, visual_summary, short_caption)
@@ -465,6 +681,15 @@ def apply_asset_llm_enrichment(
     if isinstance(observed, dict):
         visible_in_crop = deepcopy(observed.get("visible_in_crop", {}))
         if isinstance(visible_in_crop, dict):
+            symbols = updated.get("symbols") if isinstance(updated.get("symbols"), list) else []
+            timeframes = updated.get("timeframes") if isinstance(updated.get("timeframes"), list) else []
+            visible_in_crop["normalized_fields"] = {
+                "primary_symbol": updated.get("primary_symbol"),
+                "instrument_name": updated.get("instrument_name"),
+                "venue": updated.get("venue"),
+                "symbols": list(symbols),
+                "timeframes": list(timeframes),
+            }
             refreshed_crop_clean_text = _refresh_visible_in_crop_clean_text(
                 visible_in_crop.get("clean_text"),
                 updated,
@@ -480,6 +705,14 @@ def apply_asset_llm_enrichment(
         list(provenance.get("extraction_methods", [])),
         "chatgpt_browser_llm",
     )
+    field_sources = deepcopy(provenance.get("field_sources", {}))
+    if not isinstance(field_sources, dict):
+        field_sources = {}
+    for field_name, changed in changed_market_fields.items():
+        if changed:
+            field_sources[field_name] = "llm_enrichment"
+    if field_sources:
+        provenance["field_sources"] = field_sources
     review_reasons = _build_enrichment_review_reasons(updated, merged_description)
     review_required = bool(review_reasons)
     updated["review_required"] = review_required
@@ -500,6 +733,18 @@ def apply_asset_llm_enrichment(
     review["reasons"] = review_reasons
     provenance["review"] = review
     target_json["provenance"] = provenance
+
+    derived = deepcopy(target_json.get("derived", {}))
+    if not isinstance(derived, dict):
+        derived = {}
+    symbols = updated.get("symbols") if isinstance(updated.get("symbols"), list) else []
+    timeframes = updated.get("timeframes") if isinstance(updated.get("timeframes"), list) else []
+    derived["primary_symbol"] = updated.get("primary_symbol")
+    derived["instrument_name"] = updated.get("instrument_name")
+    derived["venue"] = updated.get("venue")
+    derived["symbols"] = list(symbols)
+    derived["timeframes"] = list(timeframes)
+    target_json["derived"] = derived
     updated["target_json"] = target_json
 
     updated["llm_enrichment"] = {

@@ -11,7 +11,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chatgpt_automation.client import ChatGPTClient, ChatGPTResponse
+from chatgpt_automation.client import ChatGPTClient, ChatGPTResponse, ElementNotInteractableException
 
 
 class _FakeDriver:
@@ -135,10 +135,11 @@ class ChatGPTClientTests(unittest.TestCase):
         client = self._build_client()
         file_input = mock.Mock()
         client._prepare_clean_composer = mock.Mock()
-        client._dismiss_share_dialog = mock.Mock()
+        client._dismiss_blocking_ui = mock.Mock()
         client.driver.execute_script = mock.Mock()
         client._find_file_input = mock.Mock(return_value=file_input)
         client._reset_file_input_value = mock.Mock(return_value=True)
+        client._wait_for_pending_attachments = mock.Mock(return_value=True)
         client.selector_catalog = mock.Mock()
         client.selector_catalog.find_by_attribute = mock.Mock(return_value=None)
 
@@ -150,11 +151,12 @@ class ChatGPTClientTests(unittest.TestCase):
         client._prepare_clean_composer.assert_called_once_with()
         client._reset_file_input_value.assert_called_once_with(file_input)
         file_input.send_keys.assert_called_once_with(str(attachment.resolve()))
+        client._wait_for_pending_attachments.assert_called_once_with(expected_min=1, timeout=10.0)
 
     def test_prepare_clean_composer_reloads_when_attachments_remain(self) -> None:
         client = self._build_client(current_url="https://chatgpt.com/c/existing-chat")
         composer = object()
-        client._dismiss_share_dialog = mock.Mock()
+        client._dismiss_blocking_ui = mock.Mock()
         client._focus_composer = mock.Mock(return_value=composer)
         client._clear_composer = mock.Mock()
         client._clear_pending_attachments = mock.Mock()
@@ -168,6 +170,53 @@ class ChatGPTClientTests(unittest.TestCase):
         self.assertEqual(client._clear_composer.call_count, 2)
         self.assertEqual(client._clear_pending_attachments.call_count, 2)
         self.assertEqual(client._reset_file_inputs.call_count, 2)
+
+    def test_enter_prompt_falls_back_to_js_when_composer_is_not_interactable(self) -> None:
+        client = self._build_client()
+        composer = mock.Mock()
+        composer.send_keys.side_effect = ElementNotInteractableException("blocked")
+        client._dismiss_blocking_ui = mock.Mock()
+        client._focus_composer = mock.Mock(return_value=composer)
+        client._clear_composer = mock.Mock()
+        client._set_composer_text_via_js = mock.Mock()
+        client._composer_text = mock.Mock(return_value="Describe this trading chart in JSON only.")
+
+        with mock.patch("chatgpt_automation.client.time.sleep", return_value=None):
+            ChatGPTClient.enter_prompt(client, "Describe this trading chart in JSON only.")
+
+        client._set_composer_text_via_js.assert_called_once_with(composer, "Describe this trading chart in JSON only.")
+
+    def test_run_prompt_retries_compose_once_after_interaction_failure(self) -> None:
+        client = self._build_client()
+        attachment = ROOT / "README.md"
+        client.ensure_logged_in = mock.Mock()
+        client.start_new_chat = mock.Mock()
+        client._wait_for_composer = mock.Mock()
+        client._current_assistant_snapshot = mock.Mock(return_value=[])
+        client.attach_files = mock.Mock(side_effect=[RuntimeError("Could not upload image attachments to ChatGPT."), None])
+        client.enter_prompt = mock.Mock()
+        client._send_prompt = mock.Mock()
+        client.wait_for_response = mock.Mock(
+            return_value=ChatGPTResponse(
+                message_id="msg-1",
+                model_slug="gpt-test",
+                text="done",
+                url="https://chatgpt.com/c/retried-chat",
+            )
+        )
+        client._reset_before_compose_retry = mock.Mock()
+
+        response = ChatGPTClient.run_prompt(
+            client,
+            prompt="Describe the image.",
+            attachments=[attachment],
+            new_chat=True,
+            allow_manual_login=True,
+        )
+
+        self.assertEqual(response.url, "https://chatgpt.com/c/retried-chat")
+        self.assertEqual(client.attach_files.call_count, 2)
+        client._reset_before_compose_retry.assert_called_once_with(new_chat=True)
 
 
 if __name__ == "__main__":

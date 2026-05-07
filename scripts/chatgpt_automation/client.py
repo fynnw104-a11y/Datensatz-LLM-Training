@@ -15,6 +15,7 @@ from .selectors import SelectorCatalog, SelectorEntry
 SELENIUM_IMPORT_ERROR: Exception | None = None
 try:
     from selenium.common.exceptions import (
+        ElementNotInteractableException,
         NoSuchElementException,
         StaleElementReferenceException,
         TimeoutException,
@@ -27,6 +28,7 @@ try:
     from selenium.webdriver.support.ui import WebDriverWait
 except ImportError as exc:  # pragma: no cover - depends on local machine state
     SELENIUM_IMPORT_ERROR = exc
+    ElementNotInteractableException = Exception  # type: ignore[assignment]
     NoSuchElementException = Exception  # type: ignore[assignment]
     StaleElementReferenceException = Exception  # type: ignore[assignment]
     TimeoutException = Exception  # type: ignore[assignment]
@@ -86,6 +88,8 @@ DIALOG_CSS_CANDIDATES = [
     "[aria-modal='true']",
 ]
 SHARE_DIALOG_MARKERS = (
+    "copy link",
+    "share",
     "link kopieren",
     "linkedin",
     "reddit",
@@ -95,6 +99,7 @@ CLOSE_BUTTON_ATTRIBUTE_MARKERS = (
     "close",
     "schließen",
     "schliessen",
+    "cancel",
     "dismiss",
 )
 ATTACHMENT_REMOVE_MARKERS = (
@@ -219,6 +224,14 @@ window.chrome = window.chrome || { runtime: {} };
             time.sleep(0.5)
 
         raise TimeoutException(last_error)
+
+    def _raise_runtime_with_snapshot(self, reason: str, message: str, cause: Exception | None = None) -> None:
+        snapshot_dir = self._write_debug_snapshot(reason)
+        if snapshot_dir is not None:
+            message = f"{message} Debug snapshot: {snapshot_dir}."
+        if cause is None:
+            raise RuntimeError(message)
+        raise RuntimeError(message) from cause
 
     def dismiss_cookie_banner(self) -> None:
         accept_entry = self._find_catalog_entry("akzeptieren")
@@ -517,6 +530,20 @@ window.chrome = window.chrome || { runtime: {} };
                 best_element = element
         return best_element
 
+    def _dismiss_blocking_ui(self) -> bool:
+        dismissed = self._dismiss_share_dialog()
+        if not self._visible_dialogs():
+            return dismissed
+
+        try:
+            body = self.driver.find_element(By.TAG_NAME, "body")
+            body.send_keys(Keys.ESCAPE)
+            time.sleep(0.2)
+        except Exception:
+            pass
+
+        return self._dismiss_share_dialog() or dismissed
+
     def _looks_like_send_button(self, element: WebElement) -> bool:
         attributes = " ".join(
             self._element_attribute(element, name).lower()
@@ -622,10 +649,15 @@ window.chrome = window.chrome || { runtime: {} };
         )
 
     def _focus_composer(self) -> WebElement:
+        self._dismiss_blocking_ui()
         composer = self._wait_for_composer()
         try:
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", composer)
             composer.click()
+        except Exception:
+            pass
+        try:
+            self.driver.execute_script("arguments[0].focus();", composer)
         except Exception:
             pass
         try:
@@ -721,19 +753,34 @@ if ((element.getAttribute('contenteditable') || '').toLowerCase() === 'true') {
         )
 
     def enter_prompt(self, prompt: str) -> None:
+        self._dismiss_blocking_ui()
         composer = self._focus_composer()
         self._clear_composer(composer)
-        composer.send_keys(prompt)
+        try:
+            composer.send_keys(prompt)
+        except (ElementNotInteractableException, StaleElementReferenceException) as exc:
+            self._dismiss_blocking_ui()
+            composer = self._focus_composer()
+            self._clear_composer(composer)
+            self._set_composer_text_via_js(composer, prompt)
+            last_error: Exception | None = exc
+        else:
+            last_error = None
         time.sleep(self.config.prompt_settle_seconds)
         entered_text = self._composer_text(composer)
         minimum_length = max(10, min(len(prompt.strip()) // 4, 80))
         if prompt.strip() and len(entered_text) < minimum_length:
+            self._dismiss_blocking_ui()
+            composer = self._focus_composer()
             self._set_composer_text_via_js(composer, prompt)
             time.sleep(self.config.prompt_settle_seconds)
             entered_text = self._composer_text(composer)
         if prompt.strip() and len(entered_text) < minimum_length:
-            snapshot_dir = self._write_debug_snapshot("prompt_entry_failed")
-            raise RuntimeError(f"Prompt text did not appear in the ChatGPT composer after typing. Debug snapshot: {snapshot_dir}")
+            self._raise_runtime_with_snapshot(
+                "prompt_entry_failed",
+                "Prompt text did not appear in the ChatGPT composer after typing.",
+                cause=last_error,
+            )
 
     def _current_assistant_snapshot(self) -> list[tuple[str, str | None, str, str | None]]:
         snapshots: list[tuple[str, str | None, str, str | None]] = []
@@ -847,6 +894,11 @@ if ((element.getAttribute('contenteditable') || '').toLowerCase() === 'true') {
                 score += 100
             if self._element_attribute(element, "multiple").lower() in {"true", "multiple"}:
                 score += 10
+            try:
+                if element.is_displayed():
+                    score += 20
+            except StaleElementReferenceException:
+                continue
             if score >= best_score:
                 best_score = score
                 best_element = element
@@ -995,14 +1047,14 @@ return total;
         self._wait_for_composer()
 
     def _prepare_clean_composer(self) -> None:
-        self._dismiss_share_dialog()
+        self._dismiss_blocking_ui()
         composer = self._focus_composer()
         self._clear_composer(composer)
         self._clear_pending_attachments()
         self._reset_file_inputs()
         if self._pending_attachment_count() > 0:
             self._reload_conversation_for_clean_composer()
-            self._dismiss_share_dialog()
+            self._dismiss_blocking_ui()
             composer = self._focus_composer()
             self._clear_composer(composer)
             self._clear_pending_attachments()
@@ -1032,6 +1084,45 @@ return total;
         except Exception:
             return None
 
+    def _wait_for_pending_attachments(self, expected_min: int = 1, timeout: float = 10.0) -> bool:
+        deadline = time.time() + timeout
+        minimum = max(1, expected_min)
+        while time.time() < deadline:
+            self._dismiss_share_dialog()
+            if self._pending_attachment_count() >= minimum:
+                return True
+            time.sleep(0.3)
+        return False
+
+    def _reset_before_compose_retry(self, new_chat: bool) -> None:
+        self._dismiss_blocking_ui()
+        if new_chat:
+            self.start_new_chat()
+            return
+        self._reload_conversation_for_clean_composer()
+        self._dismiss_blocking_ui()
+
+    def _compose_and_send_prompt(self, prompt: str, attachments: list[Path] | None, new_chat: bool) -> None:
+        last_error: Exception | None = None
+        for attempt in range(2):
+            if attempt > 0:
+                self._reset_before_compose_retry(new_chat=new_chat)
+            try:
+                if attachments:
+                    self.attach_files(attachments)
+                else:
+                    self._prepare_clean_composer()
+                self.enter_prompt(prompt)
+                self._send_prompt()
+                return
+            except Exception as exc:
+                last_error = exc
+                if attempt == 0:
+                    continue
+                raise
+        if last_error is not None:
+            raise last_error
+
     def _restore_last_conversation(self) -> None:
         if not self._last_conversation_url:
             return
@@ -1048,7 +1139,7 @@ return total;
             return
 
         self._prepare_clean_composer()
-        self._dismiss_share_dialog()
+        self._dismiss_blocking_ui()
         self.driver.execute_script(
             """
 for (const input of document.querySelectorAll(arguments[0])) {
@@ -1080,19 +1171,54 @@ for (const input of document.querySelectorAll(arguments[0])) {
             time.sleep(0.3)
 
         if file_input is None:
-            raise RuntimeError("Could not find a file input on the ChatGPT page.")
+            self._raise_runtime_with_snapshot(
+                "file_input_missing",
+                "Could not find a file input on the ChatGPT page.",
+            )
 
         self._reset_file_input_value(file_input)
-        file_input.send_keys("\n".join(normalized_paths))
-        time.sleep(1.0)
+        try:
+            file_input.send_keys("\n".join(normalized_paths))
+        except (ElementNotInteractableException, StaleElementReferenceException) as exc:
+            self._dismiss_blocking_ui()
+            refreshed_input = self._find_file_input()
+            if refreshed_input is None:
+                self._raise_runtime_with_snapshot(
+                    "file_input_interaction_failed",
+                    "File upload input became unavailable before Selenium could attach the image.",
+                    cause=exc,
+                )
+            self._reset_file_input_value(refreshed_input)
+            try:
+                refreshed_input.send_keys("\n".join(normalized_paths))
+            except Exception as retry_exc:
+                self._raise_runtime_with_snapshot(
+                    "file_upload_failed",
+                    "Could not upload image attachments to ChatGPT after retrying the file input.",
+                    cause=retry_exc if isinstance(retry_exc, Exception) else exc,
+                )
+        time.sleep(0.5)
+        if not self._wait_for_pending_attachments(expected_min=1, timeout=10.0):
+            self._raise_runtime_with_snapshot(
+                "attachment_preview_missing",
+                "Image upload did not appear in the ChatGPT composer after Selenium selected the file.",
+            )
 
     def _send_prompt(self) -> None:
-        send_button = self._find_send_button(timeout=self.config.send_button_timeout_seconds)
-        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", send_button)
         try:
-            send_button.click()
-        except Exception:
-            self.driver.execute_script("arguments[0].click();", send_button)
+            self._dismiss_blocking_ui()
+            send_button = self._find_send_button(timeout=self.config.send_button_timeout_seconds)
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", send_button)
+            try:
+                send_button.click()
+            except Exception:
+                self.driver.execute_script("arguments[0].click();", send_button)
+        except Exception as exc:
+            self._raise_runtime_with_snapshot(
+                "send_prompt_failed",
+                "Could not click the ChatGPT send button.",
+                cause=exc,
+            )
 
     def wait_for_response(self, previous_message_ids: set[str]) -> ChatGPTResponse:
         deadline = time.time() + self.config.response_timeout_seconds
@@ -1175,12 +1301,7 @@ for (const input of document.querySelectorAll(arguments[0])) {
             message_key
             for message_key, _message_id, _text, _model_slug in self._current_assistant_snapshot()
         }
-        if not attachments:
-            self._prepare_clean_composer()
-        if attachments:
-            self.attach_files(attachments)
-        self.enter_prompt(prompt)
-        self._send_prompt()
+        self._compose_and_send_prompt(prompt=prompt, attachments=attachments, new_chat=new_chat)
         response = self.wait_for_response(previous_message_ids)
         if response.url:
             self._last_conversation_url = response.url

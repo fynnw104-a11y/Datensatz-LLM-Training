@@ -17,3 +17,4 @@ ChatGPT/sites/**/screenshot_*.png
 data/processed/*.jsonl
 data/processed/*.json
 data/processed/
+data/raw/

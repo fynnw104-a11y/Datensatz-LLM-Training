@@ -371,6 +371,100 @@ class EnrichmentTests(unittest.TestCase):
             "old clean text\nVisible labels: Bitcoin / TetherUS, 1h, BINANCE",
         )
 
+    def test_apply_asset_llm_enrichment_backfills_market_fields_and_clears_review(self) -> None:
+        annotation = {
+            "caption": "old caption",
+            "summary": "old summary",
+            "description": "old description",
+            "clean_text": "old clean text",
+            "review_required": True,
+            "page_type_confidence": 0.5,
+            "extraction_methods": ["ocr"],
+            "primary_symbol": None,
+            "instrument_name": None,
+            "venue": None,
+            "symbols": [],
+            "timeframes": ["H1"],
+            "labels": {
+                "contains_symbol": False,
+                "contains_timeframe": True,
+                "text_density": "medium",
+            },
+            "target_json": {
+                "description": {
+                    "short_caption": "old caption",
+                    "visual_summary": "old description",
+                    "context_augmented_summary": "old description",
+                    "key_visual_elements": [],
+                    "limitations": [],
+                },
+                "observed": {
+                    "visible_in_crop": {
+                        "clean_text": "old clean text",
+                        "normalized_fields": {
+                            "primary_symbol": None,
+                            "instrument_name": None,
+                            "venue": None,
+                            "symbols": [],
+                            "timeframes": ["H1"],
+                        },
+                    }
+                },
+                "derived": {
+                    "primary_symbol": None,
+                    "instrument_name": None,
+                    "venue": None,
+                    "symbols": [],
+                    "timeframes": ["H1"],
+                },
+                "provenance": {
+                    "extraction_methods": ["ocr"],
+                    "field_sources": {
+                        "primary_symbol": "missing",
+                        "instrument_name": "missing",
+                        "venue": "missing",
+                        "symbols": "missing",
+                        "timeframes": "ocr",
+                    },
+                },
+            },
+        }
+
+        updated = apply_asset_llm_enrichment(
+            annotation=annotation,
+            response_payload={
+                "short_caption": "TradingView EUR/USD chart with session zones",
+                "visual_summary": "A grayscale intraday EUR/USD chart with highlighted session zones and arrows.",
+                "context_augmented_summary": "The image appears to show EUR/USD on a 5-minute chart from FXCM.",
+                "key_visual_elements": ["candlesticks", "session_zones"],
+                "limitations": ["small interface text is partially unreadable"],
+                "visible_text": "Euro / US-Dollar - 5 - FXCM",
+                "training_tags": ["chart", "forex", "eurusd"],
+                "confidence": "high",
+            },
+            raw_response_text='{"short_caption":"TradingView EUR/USD chart with session zones"}',
+            prompt="describe image",
+            language="en",
+            model_slug="gpt-test",
+            conversation_url="https://chatgpt.com/c/test",
+        )
+
+        self.assertEqual(updated["primary_symbol"], "EURUSD")
+        self.assertEqual(updated["instrument_name"], "Euro / US-Dollar")
+        self.assertEqual(updated["venue"], "FXCM")
+        self.assertEqual(updated["timeframes"], ["M5"])
+        self.assertIn("EURUSD", updated["symbols"])
+        self.assertFalse(updated["review_required"])
+        self.assertEqual(updated["target_json"]["provenance"]["quality"]["annotation_quality"], "high")
+        self.assertEqual(
+            updated["target_json"]["observed"]["visible_in_crop"]["normalized_fields"]["primary_symbol"],
+            "EURUSD",
+        )
+        self.assertEqual(
+            updated["target_json"]["provenance"]["field_sources"]["primary_symbol"],
+            "llm_enrichment",
+        )
+
     def test_build_multimodal_description_prompt_forbids_joined_visible_text_fragments(self) -> None:
         prompt = build_multimodal_description_prompt(
             {
@@ -541,10 +635,10 @@ class EnrichmentTests(unittest.TestCase):
         )
 
         self.assertTrue(updated["review_required"])
-        self.assertEqual(updated["target_json"]["provenance"]["quality"]["annotation_quality"], "medium")
+        self.assertEqual(updated["target_json"]["provenance"]["quality"]["annotation_quality"], "high")
         self.assertEqual(
             updated["target_json"]["provenance"]["review"]["reasons"],
-            ["low_page_type_confidence", "ocr_encoding_artifacts", "llm_reported_uncertainty"],
+            ["ocr_encoding_artifacts"],
         )
 
 
