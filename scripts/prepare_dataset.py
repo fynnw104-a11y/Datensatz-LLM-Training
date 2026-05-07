@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -18,6 +19,7 @@ RAW_PDFS_DIR = ROOT / "data" / "raw" / "pdfs"
 RAW_NODES_DIR = ROOT / "data" / "raw" / "nodes"
 PROCESSED_DIR = ROOT / "data" / "processed"
 MULTIMODAL_DIR = PROCESSED_DIR / "multimodal"
+MULTIMODAL_PAIRS_DIR = MULTIMODAL_DIR / "pairs"
 MULTIMODAL_IMAGES_DIR = MULTIMODAL_DIR / "images"
 MULTIMODAL_ANNOTATIONS_DIR = MULTIMODAL_DIR / "annotations"
 PROJECT_TESSDATA_DIR = ROOT / ".tessdata"
@@ -27,6 +29,8 @@ STRUCTURED_SUFFIXES = {".json", ".jsonl", ".csv"}
 PDF_SUFFIX = ".pdf"
 
 PDF_RENDER_SCALE = float(os.getenv("PDF_RENDER_SCALE", "2.0"))
+ASSET_TARGET_LONG_EDGE_PX = int(os.getenv("ASSET_TARGET_LONG_EDGE_PX", "2200"))
+ASSET_MAX_RENDER_SCALE = float(os.getenv("ASSET_MAX_RENDER_SCALE", "4.0"))
 OCR_ENABLED = os.getenv("ENABLE_OCR", "1").strip().lower() not in {"0", "false", "no"}
 OCR_LANGUAGE = os.getenv("TESSERACT_LANG", "eng")
 ASSET_MIN_AREA_RATIO = float(os.getenv("ASSET_MIN_AREA_RATIO", "0.02"))
@@ -207,9 +211,21 @@ class LayoutTextBlock:
 
 
 @dataclass(frozen=True)
+class LayoutImageBlock:
+    bbox: BBox
+    ext: str
+    image_bytes: bytes
+    width: int = 0
+    height: int = 0
+    xres: int = 0
+    yres: int = 0
+
+
+@dataclass(frozen=True)
 class VisualAssetCandidate:
     bbox: BBox
     source: str
+    image_block: LayoutImageBlock | None = None
 
 
 def safe_read_text(path: Path) -> str:
@@ -268,6 +284,39 @@ def slugify(value: str) -> str:
 
 def root_relative(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
+
+
+def normalize_image_extension(value: str) -> str:
+    normalized = value.strip().lower().lstrip(".")
+    extension_map = {
+        "jpeg": "jpg",
+        "jpg": "jpg",
+        "png": "png",
+        "webp": "webp",
+        "bmp": "bmp",
+        "tif": "tif",
+        "tiff": "tif",
+    }
+    return extension_map.get(normalized, "")
+
+
+def build_asset_pair_basename(source_pdf: str, page_number: int, asset_index: int) -> str:
+    pdf_slug = slugify(str(Path(source_pdf).with_suffix(""))).replace("/", "__")
+    return f"{pdf_slug}__page_{page_number:04d}__asset_{asset_index:02d}"
+
+
+def build_asset_pair_paths(
+    source_pdf: str,
+    page_number: int,
+    asset_index: int,
+    image_extension: str = "png",
+) -> tuple[Path, Path]:
+    normalized_extension = normalize_image_extension(image_extension) or "png"
+    basename = build_asset_pair_basename(source_pdf, page_number, asset_index)
+    return (
+        MULTIMODAL_PAIRS_DIR / f"{basename}.{normalized_extension}",
+        MULTIMODAL_PAIRS_DIR / f"{basename}.json",
+    )
 
 
 def ascii_fold(value: str) -> str:
@@ -1388,10 +1437,10 @@ def infer_context_heading(text_blocks: list[LayoutTextBlock]) -> str:
     return fallback_lines[0] if fallback_lines else ""
 
 
-def extract_page_layout(page: Any) -> tuple[list[LayoutTextBlock], list[BBox]]:
+def extract_page_layout(page: Any) -> tuple[list[LayoutTextBlock], list[LayoutImageBlock]]:
     payload = page.get_text("dict")
     text_blocks: list[LayoutTextBlock] = []
-    image_bboxes: list[BBox] = []
+    image_blocks: list[LayoutImageBlock] = []
 
     for block in payload.get("blocks", []):
         bbox = block.get("bbox")
@@ -1416,11 +1465,21 @@ def extract_page_layout(page: Any) -> tuple[list[LayoutTextBlock], list[BBox]]:
             if text:
                 text_blocks.append(LayoutTextBlock(bbox=to_bbox(bbox), text=text, font_size=max_font_size))
         elif block.get("type") == 1:
-            image_bboxes.append(to_bbox(bbox))
+            image_blocks.append(
+                LayoutImageBlock(
+                    bbox=to_bbox(bbox),
+                    ext=str(block.get("ext") or ""),
+                    image_bytes=block.get("image") or b"",
+                    width=int(block.get("width") or 0),
+                    height=int(block.get("height") or 0),
+                    xres=int(block.get("xres") or 0),
+                    yres=int(block.get("yres") or 0),
+                )
+            )
 
     text_blocks.sort(key=lambda item: bbox_sort_key(item.bbox))
-    image_bboxes.sort(key=bbox_sort_key)
-    return text_blocks, image_bboxes
+    image_blocks.sort(key=lambda item: bbox_sort_key(item.bbox))
+    return text_blocks, image_blocks
 
 
 def merge_bboxes(bboxes: list[BBox], gap: float, page_bbox: BBox) -> list[BBox]:
@@ -1550,6 +1609,7 @@ def merge_visual_asset_candidates(
                 merged[index] = VisualAssetCandidate(
                     bbox=bbox_expand(merged_bbox, 0, page_bbox),
                     source="+".join(merged_source_parts),
+                    image_block=None,
                 )
                 break
         else:
@@ -1561,13 +1621,19 @@ def merge_visual_asset_candidates(
 def discover_visual_asset_candidates(
     page: Any,
     text_blocks: list[LayoutTextBlock],
-    image_bboxes: list[BBox],
+    image_blocks: list[LayoutImageBlock],
     page_bbox: BBox,
 ) -> list[VisualAssetCandidate]:
     candidates: list[VisualAssetCandidate] = []
-    for bbox in image_bboxes:
-        if is_visual_candidate(bbox, page_bbox):
-            candidates.append(VisualAssetCandidate(bbox=bbox, source="embedded_image"))
+    for image_block in image_blocks:
+        if is_visual_candidate(image_block.bbox, page_bbox):
+            candidates.append(
+                VisualAssetCandidate(
+                    bbox=image_block.bbox,
+                    source="embedded_image",
+                    image_block=image_block,
+                )
+            )
 
     for bbox in extract_drawing_bboxes(page, page_bbox):
         if is_visual_candidate(bbox, page_bbox):
@@ -2562,6 +2628,72 @@ def asset_padding_for_source(asset_source: str) -> float:
     return ASSET_RENDER_PADDING
 
 
+def asset_render_scale(asset_bbox: BBox) -> float:
+    long_edge_points = max(bbox_width(asset_bbox), bbox_height(asset_bbox), 1.0)
+    target_scale = ASSET_TARGET_LONG_EDGE_PX / long_edge_points
+    return round(max(PDF_RENDER_SCALE, min(target_scale, ASSET_MAX_RENDER_SCALE)), 2)
+
+
+def reset_multimodal_asset_exports() -> None:
+    if MULTIMODAL_PAIRS_DIR.exists():
+        shutil.rmtree(MULTIMODAL_PAIRS_DIR)
+    for root_dir in (MULTIMODAL_IMAGES_DIR, MULTIMODAL_ANNOTATIONS_DIR):
+        if not root_dir.exists():
+            continue
+        for stale_dir in sorted(root_dir.rglob("assets"), reverse=True):
+            if stale_dir.is_dir():
+                shutil.rmtree(stale_dir)
+
+
+def export_visual_asset_image(
+    page: Any,
+    asset_candidate: VisualAssetCandidate,
+    source_pdf: str,
+    page_number: int,
+    asset_index: int,
+    fitz: Any,
+) -> tuple[Path, dict[str, Any]]:
+    embedded_image = asset_candidate.image_block
+    if embedded_image is not None and asset_candidate.source == "embedded_image":
+        image_extension = normalize_image_extension(embedded_image.ext)
+        if image_extension and embedded_image.image_bytes:
+            image_path, _json_path = build_asset_pair_paths(
+                source_pdf,
+                page_number,
+                asset_index,
+                image_extension=image_extension,
+            )
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_path.write_bytes(embedded_image.image_bytes)
+            return image_path, {
+                "mode": "embedded_original",
+                "format": image_extension,
+                "pixel_size": {
+                    "width": embedded_image.width,
+                    "height": embedded_image.height,
+                },
+                "source_resolution": {
+                    "xres": embedded_image.xres,
+                    "yres": embedded_image.yres,
+                },
+            }
+
+    render_scale = asset_render_scale(asset_candidate.bbox)
+    image_path, _json_path = build_asset_pair_paths(source_pdf, page_number, asset_index, image_extension="png")
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    asset_pixmap = page.get_pixmap(
+        matrix=fitz.Matrix(render_scale, render_scale),
+        clip=fitz.Rect(*asset_candidate.bbox),
+        alpha=False,
+    )
+    asset_pixmap.save(str(image_path))
+    return image_path, {
+        "mode": "rendered_crop",
+        "format": "png",
+        "render_scale": render_scale,
+    }
+
+
 def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     fitz = import_pymupdf()
     ocr_runtime = detect_ocr_runtime()
@@ -2575,6 +2707,8 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
 
     page_annotations: list[dict[str, Any]] = []
     asset_annotations: list[dict[str, Any]] = []
+    reset_multimodal_asset_exports()
+    MULTIMODAL_PAIRS_DIR.mkdir(parents=True, exist_ok=True)
     pdf_count = 0
     page_count = 0
     asset_count = 0
@@ -2587,13 +2721,9 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
         source_pdf = pdf_path.relative_to(RAW_PDFS_DIR).as_posix()
         pdf_slug = slugify(str(Path(source_pdf).with_suffix("")))
         page_image_dir = MULTIMODAL_IMAGES_DIR / pdf_slug / "pages"
-        asset_image_dir = MULTIMODAL_IMAGES_DIR / pdf_slug / "assets"
         page_annotation_dir = MULTIMODAL_ANNOTATIONS_DIR / pdf_slug / "pages"
-        asset_annotation_dir = MULTIMODAL_ANNOTATIONS_DIR / pdf_slug / "assets"
         page_image_dir.mkdir(parents=True, exist_ok=True)
-        asset_image_dir.mkdir(parents=True, exist_ok=True)
         page_annotation_dir.mkdir(parents=True, exist_ok=True)
-        asset_annotation_dir.mkdir(parents=True, exist_ok=True)
 
         pdf_document = fitz.open(pdf_path)
         pdf_count += 1
@@ -2605,9 +2735,9 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                 page_image_path = page_image_dir / f"page_{page_number:04d}.png"
                 page_annotation_path = page_annotation_dir / f"page_{page_number:04d}.json"
 
-                text_blocks, image_bboxes = extract_page_layout(page)
+                text_blocks, image_blocks = extract_page_layout(page)
                 embedded_text = normalize_whitespace("\n\n".join(text_block.text for text_block in text_blocks))
-                asset_candidates = discover_visual_asset_candidates(page, text_blocks, image_bboxes, page_bbox)
+                asset_candidates = discover_visual_asset_candidates(page, text_blocks, image_blocks, page_bbox)
                 expanded_asset_bboxes = [
                     bbox_expand(asset_candidate.bbox, asset_padding_for_source(asset_candidate.source), page_bbox)
                     for asset_candidate in asset_candidates
@@ -2618,15 +2748,24 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                 for asset_index, asset_candidate in enumerate(asset_candidates, start=1):
                     asset_bbox = expanded_asset_bboxes[asset_index - 1]
                     asset_id = stable_id("pdf_asset", source_pdf, str(page_number), str(asset_index))
-                    asset_image_path = asset_image_dir / f"page_{page_number:04d}_asset_{asset_index:02d}.png"
-                    asset_annotation_path = asset_annotation_dir / f"page_{page_number:04d}_asset_{asset_index:02d}.json"
-
-                    asset_pixmap = page.get_pixmap(
-                        matrix=fitz.Matrix(PDF_RENDER_SCALE, PDF_RENDER_SCALE),
-                        clip=fitz.Rect(*asset_bbox),
-                        alpha=False,
+                    asset_image_path, image_export = export_visual_asset_image(
+                        page=page,
+                        asset_candidate=VisualAssetCandidate(
+                            bbox=asset_bbox,
+                            source=asset_candidate.source,
+                            image_block=asset_candidate.image_block if asset_bbox == asset_candidate.bbox else None,
+                        ),
+                        source_pdf=source_pdf,
+                        page_number=page_number,
+                        asset_index=asset_index,
+                        fitz=fitz,
                     )
-                    asset_pixmap.save(str(asset_image_path))
+                    _pair_image_path, asset_annotation_path = build_asset_pair_paths(
+                        source_pdf,
+                        page_number,
+                        asset_index,
+                        image_extension=asset_image_path.suffix,
+                    )
 
                     raw_ocr_text, ocr_meta = run_ocr(asset_image_path)
                     polished_ocr_text = "\n".join(polish_context_lines(raw_ocr_text, max_lines=10))
@@ -2777,6 +2916,7 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                         "trading_domains": trading_domains,
                         "labels": labels,
                         "review_required": review_required,
+                        "image_export": image_export,
                     }
                     asset_annotation["target_json"] = build_asset_training_target(asset_annotation)
                     write_json(asset_annotation_path, asset_annotation)
@@ -2852,6 +2992,9 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
         "asset_count": asset_count,
         "asset_source_counts": asset_source_counts,
         "render_scale": PDF_RENDER_SCALE,
+        "asset_target_long_edge_px": ASSET_TARGET_LONG_EDGE_PX,
+        "asset_max_render_scale": ASSET_MAX_RENDER_SCALE,
+        "pairs_dir": root_relative(MULTIMODAL_PAIRS_DIR),
         "ocr_enabled": OCR_ENABLED,
         "ocr_language": OCR_LANGUAGE,
         "ocr_runtime": ocr_runtime,
@@ -2864,6 +3007,7 @@ def build_image_json_pair_index(asset_annotations: list[dict[str, Any]]) -> list
             "id": annotation["id"],
             "image_path": annotation["image_path"],
             "json_path": annotation["json_path"],
+            "image_export": annotation.get("image_export", {}),
             "source_pdf": annotation["source_pdf"],
             "page_number": annotation["page_number"],
             "asset_index": annotation["asset_index"],
@@ -2896,6 +3040,7 @@ def main() -> None:
     RAW_PDFS_DIR.mkdir(parents=True, exist_ok=True)
     RAW_NODES_DIR.mkdir(parents=True, exist_ok=True)
     MULTIMODAL_DIR.mkdir(parents=True, exist_ok=True)
+    MULTIMODAL_PAIRS_DIR.mkdir(parents=True, exist_ok=True)
     MULTIMODAL_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     MULTIMODAL_ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
 

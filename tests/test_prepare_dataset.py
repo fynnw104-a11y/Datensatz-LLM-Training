@@ -9,6 +9,8 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from prepare_dataset import (
     CONCEPT_KEYWORDS,
+    asset_render_scale,
+    build_asset_pair_paths,
     build_asset_training_target,
     derive_asset_market_fields,
     extract_keyword_labels,
@@ -19,6 +21,17 @@ from prepare_dataset import (
 
 
 class PrepareDatasetTests(unittest.TestCase):
+    def test_build_asset_pair_paths_uses_single_pairs_directory_and_shared_basename(self) -> None:
+        image_path, json_path = build_asset_pair_paths("nested/03.10.pdf", page_number=1, asset_index=2, image_extension="jpeg")
+
+        self.assertTrue(image_path.as_posix().endswith("data/processed/multimodal/pairs/nested__03-10__page_0001__asset_02.jpg"))
+        self.assertTrue(json_path.as_posix().endswith("data/processed/multimodal/pairs/nested__03-10__page_0001__asset_02.json"))
+        self.assertEqual(image_path.stem, json_path.stem)
+
+    def test_asset_render_scale_prefers_higher_quality_but_caps_maximum(self) -> None:
+        self.assertEqual(asset_render_scale((0.0, 0.0, 500.0, 250.0)), 4.0)
+        self.assertEqual(asset_render_scale((0.0, 0.0, 1400.0, 700.0)), 2.0)
+
     def test_extract_keyword_labels_ignores_rr_ocr_artifact(self) -> None:
         text = "59.500,00\n59.2000\nRR --------\n0 12:00 1:00 2 05:00"
 

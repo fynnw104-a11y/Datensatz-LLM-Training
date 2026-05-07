@@ -85,17 +85,20 @@ Erzeugte Dateien:
 - `data/processed/multimodal/page_annotations.jsonl`
 - `data/processed/multimodal/asset_annotations.jsonl`
 - `data/processed/multimodal/image_json_pairs.jsonl`
-- `data/processed/multimodal/images/...`
-- `data/processed/multimodal/annotations/...`
+- `data/processed/multimodal/pairs/...`
+- `data/processed/multimodal/images/...` fuer Seitenbilder
+- `data/processed/multimodal/annotations/...` fuer Seiten-Metadaten
 - `data/processed/manifest.json`
 
-Wenn `PyMuPDF` verfuegbar ist, analysiert der Script das PDF-Layout, extrahiert einzelne Bild-/Chart-Regionen und erzeugt dafuer eigene PNG+JSON-Paare.
+Wenn `PyMuPDF` verfuegbar ist, analysiert der Script das PDF-Layout, extrahiert einzelne Bild-/Chart-Regionen und erzeugt dafuer eigene Bild+JSON-Paare.
 
 Zusatznutzen:
 
 - `page_annotations.jsonl` bleibt als Seiten-Metadaten und Traceability-Layer erhalten.
-- `asset_annotations.jsonl` ist der eigentliche Trainingsexport auf Asset-Ebene.
-- `image_json_pairs.jsonl` zeigt nur auf die extrahierten Bild-/Chart-Crops, nicht mehr auf ganze Seiten.
+- `data/processed/multimodal/pairs/` ist jetzt der autoritative Export fuer Asset-Bild+JSON-Paare mit gleichem Basenamen in genau einem Ordner.
+- eingebettete PDF-Bilder werden dort wenn moeglich in ihrem Originalformat und ihrer Originalqualitaet gespeichert; andere Assets werden mit hoher Render-Aufloesung als PNG exportiert.
+- `asset_annotations.jsonl` ist der aggregierte Index ueber dieselben Asset-Paare.
+- `image_json_pairs.jsonl` zeigt auf die Dateien im zentralen `pairs`-Ordner.
 - Die Asset-JSONs enthalten normalisierte Felder wie `primary_symbol`, `instrument_name`, `venue`, `bias`, `setup_status` und ein trainingsfreundliches `clean_text`.
 - Das eigentliche `target_json` fuer Bild->JSON-Training trennt jetzt sauber zwischen `description`, `observed`, `derived` und `provenance`.
 - `observed.visible_in_crop` enthaelt nur Crop-nahe Beobachtungen; `observed.paired_context` markiert zusaetzlichen Seitentext explizit als externen Kontext.
@@ -113,6 +116,8 @@ Optional relevante Umgebungsvariablen:
 
 ```powershell
 $env:PDF_RENDER_SCALE="2.0"
+$env:ASSET_TARGET_LONG_EDGE_PX="2200"
+$env:ASSET_MAX_RENDER_SCALE="4.0"
 $env:ENABLE_OCR="1"
 $env:TESSERACT_LANG="deu+eng"
 $env:TESSERACT_CMD="C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -137,7 +142,7 @@ Wichtige Architektur:
 - `scripts/run_chatgpt_batch.py`
   Allgemeiner JSONL-Batch-Runner fuer Prompt+Attachment-Jobs.
 - `scripts/enrich_multimodal_descriptions.py`
-  Dataset-spezifischer Enricher fuer die bestehenden Asset-Annotationen unter `data/processed/multimodal/annotations/.../assets/*.json`.
+  Dataset-spezifischer Enricher fuer die bestehenden Asset-Annotationen unter `data/processed/multimodal/pairs/*.json`.
 
 Der Browser-Layer nutzt ein konfiguriertes Browser-Profil oder eine konfigurierte Cookie-Datei, wenn vorhanden. Ohne explizite Pfade liegen die Standardpfade im ignorierten Projektordner `.runtime/chatgpt/...`. Wenn das nicht reicht, faellt er auf einen interaktiven Login in einem separaten normalen Browserfenster mit demselben Profil zurueck. Dieses Fenster nach dem Login wieder schliessen, damit die Automation das Profil uebernehmen kann. Zugangsdaten werden dabei nicht hart im Code aus den Selektor-Dateien uebernommen.
 

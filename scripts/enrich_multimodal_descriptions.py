@@ -12,7 +12,7 @@ from chatgpt_automation.config import ROOT, load_config
 from chatgpt_automation.enrichment import apply_asset_llm_enrichment, build_multimodal_description_prompt
 from chatgpt_automation.selectors import SelectorCatalog
 
-DEFAULT_ASSET_GLOB = "data/processed/multimodal/annotations/*/assets/*.json"
+DEFAULT_ASSET_GLOB = "data/processed/multimodal/pairs/*.json"
 DEFAULT_RUNS_DIR = ROOT / "data" / "processed" / "chatgpt_runs"
 DEFAULT_MAX_ASSETS_PER_CHAT = 20
 

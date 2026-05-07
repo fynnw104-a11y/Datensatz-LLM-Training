@@ -25,7 +25,7 @@ CHATGPT_CONFIG_PATH = DEFAULT_CONFIG_PATH
 CHATGPT_CONFIG_EXAMPLE_PATH = CHATGPT_DIR / "config.example.json"
 CHATGPT_RUNTIME_DIR = ROOT / ".runtime" / "chatgpt"
 CURATED_FILE = ROOT / "data" / "curated" / "training_examples.jsonl"
-MULTIMODAL_ASSET_GLOB = "data/processed/multimodal/annotations/*/assets/*.json"
+MULTIMODAL_ASSET_GLOB = "data/processed/multimodal/pairs/*.json"
 PROCESSED_CHATGPT_RUNS_DIR = ROOT / "data" / "processed" / "chatgpt_runs"
 DEFAULT_MAX_ASSETS_PER_CHAT = 20
 SAFE_CONFIG_OVERRIDES = {
@@ -225,7 +225,7 @@ def build_doctor_results(config_path: str | Path | None = None) -> list[CheckRes
         CheckResult(
             "Asset-Annotationen",
             "ok" if asset_count else "warn",
-            f"{asset_count} Asset-JSONs gefunden",
+            f"{asset_count} Asset-Paare im zentralen pairs-Ordner gefunden",
         )
     )
 
