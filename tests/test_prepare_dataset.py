@@ -10,6 +10,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 from prepare_dataset import (
     CONCEPT_KEYWORDS,
     asset_render_scale,
+    build_asset_pair_id,
     build_asset_pair_paths,
     build_asset_training_target,
     derive_asset_market_fields,
@@ -23,9 +24,10 @@ from prepare_dataset import (
 class PrepareDatasetTests(unittest.TestCase):
     def test_build_asset_pair_paths_uses_single_pairs_directory_and_shared_basename(self) -> None:
         image_path, json_path = build_asset_pair_paths("nested/03.10.pdf", page_number=1, asset_index=2, image_extension="jpeg")
+        expected_basename = f"nested__03-10__p0001__a02__{build_asset_pair_id('nested/03.10.pdf', 1, 2)}"
 
-        self.assertTrue(image_path.as_posix().endswith("data/processed/multimodal/pairs/nested__03-10__page_0001__asset_02.jpg"))
-        self.assertTrue(json_path.as_posix().endswith("data/processed/multimodal/pairs/nested__03-10__page_0001__asset_02.json"))
+        self.assertTrue(image_path.as_posix().endswith(f"data/processed/multimodal/pairs/{expected_basename}.jpg"))
+        self.assertTrue(json_path.as_posix().endswith(f"data/processed/multimodal/pairs/{expected_basename}.json"))
         self.assertEqual(image_path.stem, json_path.stem)
 
     def test_asset_render_scale_prefers_higher_quality_but_caps_maximum(self) -> None:

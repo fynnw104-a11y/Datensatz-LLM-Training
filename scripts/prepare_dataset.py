@@ -300,9 +300,14 @@ def normalize_image_extension(value: str) -> str:
     return extension_map.get(normalized, "")
 
 
+def build_asset_pair_id(source_pdf: str, page_number: int, asset_index: int) -> str:
+    return stable_id("pdf_asset", source_pdf, str(page_number), str(asset_index))
+
+
 def build_asset_pair_basename(source_pdf: str, page_number: int, asset_index: int) -> str:
     pdf_slug = slugify(str(Path(source_pdf).with_suffix(""))).replace("/", "__")
-    return f"{pdf_slug}__page_{page_number:04d}__asset_{asset_index:02d}"
+    pair_id = build_asset_pair_id(source_pdf, page_number, asset_index)
+    return f"{pdf_slug}__p{page_number:04d}__a{asset_index:02d}__{pair_id}"
 
 
 def build_asset_pair_paths(
@@ -2747,7 +2752,7 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                 page_asset_annotations: list[dict[str, Any]] = []
                 for asset_index, asset_candidate in enumerate(asset_candidates, start=1):
                     asset_bbox = expanded_asset_bboxes[asset_index - 1]
-                    asset_id = stable_id("pdf_asset", source_pdf, str(page_number), str(asset_index))
+                    asset_id = build_asset_pair_id(source_pdf, page_number, asset_index)
                     asset_image_path, image_export = export_visual_asset_image(
                         page=page,
                         asset_candidate=VisualAssetCandidate(
