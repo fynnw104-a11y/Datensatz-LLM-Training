@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Compact Multimodal Training Pair",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_type",
+    "response"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "task_type": {
+      "type": "string",
+      "const": "strict_image_to_json"
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "asset_type": {
+          "type": "string"
+        },
+        "primary_symbol": {
+          "type": "string"
+        },
+        "instrument_name": {
+          "type": "string"
+        },
+        "venue": {
+          "type": "string"
+        },
+        "timeframes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "visible_text": {
+          "type": "string"
+        },
+        "short_caption": {
+          "type": "string"
+        },
+        "visual_summary": {
+          "type": "string"
+        },
+        "key_visual_elements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -26,6 +26,8 @@ CHATGPT_CONFIG_EXAMPLE_PATH = CHATGPT_DIR / "config.example.json"
 CHATGPT_RUNTIME_DIR = ROOT / ".runtime" / "chatgpt"
 CURATED_FILE = ROOT / "data" / "curated" / "training_examples.jsonl"
 MULTIMODAL_ASSET_GLOB = "data/processed/multimodal/pairs/*.json"
+MULTIMODAL_TRAINING_PAIR_GLOB = "data/processed/multimodal/training_pairs/*.json"
+MULTIMODAL_TRAINING_PAIR_MANIFEST_PATH = ROOT / "data" / "processed" / "multimodal" / "training_pairs_manifest.json"
 PROCESSED_CHATGPT_RUNS_DIR = ROOT / "data" / "processed" / "chatgpt_runs"
 DEFAULT_MAX_ASSETS_PER_CHAT = 20
 SAFE_CONFIG_OVERRIDES = {
@@ -66,6 +68,36 @@ def repo_relative(path: Path) -> str:
         return path.resolve().relative_to(ROOT.resolve()).as_posix()
     except ValueError:
         return str(path.resolve())
+
+
+def load_json(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def collect_enrichment_target_paths(skip_existing_llm: bool, limit: int | None) -> list[Path]:
+    targets: list[Path] = []
+    for annotation_path in sorted(ROOT.glob(MULTIMODAL_ASSET_GLOB)):
+        annotation = load_json(annotation_path)
+        if annotation.get("pair_type") != "visual_asset":
+            continue
+        if skip_existing_llm and isinstance(annotation.get("llm_enrichment"), dict):
+            continue
+        image_path = ROOT / str(annotation.get("image_path", ""))
+        if not image_path.is_file():
+            continue
+        targets.append(annotation_path)
+        if limit is not None and len(targets) >= limit:
+            break
+    return targets
+
+
+def count_missing_llm_enrichment(annotation_paths: Iterable[Path]) -> int:
+    missing = 0
+    for annotation_path in annotation_paths:
+        annotation = load_json(annotation_path)
+        if not isinstance(annotation.get("llm_enrichment"), dict):
+            missing += 1
+    return missing
 
 
 def print_header(title: str) -> None:
@@ -229,6 +261,19 @@ def build_doctor_results(config_path: str | Path | None = None) -> list[CheckRes
         )
     )
 
+    training_pair_count = count_real_files(ROOT, MULTIMODAL_TRAINING_PAIR_GLOB)
+    results.append(
+        CheckResult(
+            "Training-Paare",
+            "ok" if training_pair_count else "info",
+            (
+                f"{training_pair_count} kompakte Training-Paare gefunden"
+                if training_pair_count
+                else "Noch kein kompakter Trainingsexport vorhanden."
+            ),
+        )
+    )
+
     curated_status = "ok" if CURATED_FILE.exists() else "warn"
     curated_detail = repo_relative(CURATED_FILE) if CURATED_FILE.exists() else "keine kuratierte Trainingsdatei vorhanden"
     results.append(CheckResult("Train/Eval-Split Quelle", curated_status, curated_detail))
@@ -341,6 +386,76 @@ def run_training_split() -> None:
     run_python_script("build_training_split.py")
 
 
+def run_export_training_pairs(
+    min_quality: str = "medium",
+    require_llm: bool = True,
+    allow_review_required: bool = False,
+) -> dict[str, object]:
+    if not count_real_files(ROOT, MULTIMODAL_ASSET_GLOB):
+        raise RuntimeError("Es gibt noch keine Asset-Annotationen. Bitte zuerst das Dataset bauen.")
+    print_header("Kompakte Training-Paare werden exportiert")
+    args = ["--min-quality", min_quality]
+    if not require_llm:
+        args.append("--no-require-llm")
+    if allow_review_required:
+        args.append("--allow-review-required")
+    run_python_script("export_multimodal_training_pairs.py", args)
+    if not MULTIMODAL_TRAINING_PAIR_MANIFEST_PATH.exists():
+        raise RuntimeError(
+            "Der Export ist durchgelaufen, aber das Manifest fehlt: "
+            f"{repo_relative(MULTIMODAL_TRAINING_PAIR_MANIFEST_PATH)}"
+        )
+    manifest = load_json(MULTIMODAL_TRAINING_PAIR_MANIFEST_PATH)
+    exported_pairs = int(manifest.get("exported_pairs", 0) or 0)
+    print(f"- Exportierte Paare: {exported_pairs}")
+    skipped = manifest.get("skipped")
+    if isinstance(skipped, dict) and skipped:
+        skip_summary = ", ".join(f"{key}={value}" for key, value in sorted(skipped.items()))
+        print(f"- Uebersprungen: {skip_summary}")
+    return manifest
+
+
+def run_auto_export_training_pairs(with_chatgpt: bool) -> dict[str, object]:
+    manifest = run_export_training_pairs(
+        min_quality="medium",
+        require_llm=with_chatgpt,
+        allow_review_required=False,
+    )
+    if int(manifest.get("exported_pairs", 0) or 0) > 0:
+        return manifest
+
+    skipped = manifest.get("skipped")
+    review_required_skips = 0
+    missing_llm_skips = 0
+    if isinstance(skipped, dict):
+        review_required_skips = int(skipped.get("review_required", 0) or 0)
+        missing_llm_skips = int(skipped.get("missing_llm_enrichment", 0) or 0)
+
+    if missing_llm_skips > 0:
+        print(
+            "- Der strikte Export war unvollstaendig, weil noch Assets ohne LLM-Enrichment vorhanden sind. "
+            "Auto-Modus startet deshalb keinen Review-Fallback."
+        )
+        return manifest
+
+    if review_required_skips <= 0:
+        print(
+            "- Der strikte Export hat keine Trainingspaare erzeugt. "
+            f"Details stehen in {repo_relative(MULTIMODAL_TRAINING_PAIR_MANIFEST_PATH)}."
+        )
+        return manifest
+
+    print(
+        "- Der strikte Export war leer, weil nur review-pflichtige Assets uebrig waren. "
+        "Auto-Modus versucht jetzt einen zweiten Lauf mit `allow_review_required`."
+    )
+    return run_export_training_pairs(
+        min_quality="medium",
+        require_llm=with_chatgpt,
+        allow_review_required=True,
+    )
+
+
 def run_enrichment(
     limit: int | None,
     language: str,
@@ -432,8 +547,13 @@ def run_everything(
 
     run_prepare_dataset()
 
+    enrichment_target_paths: list[Path] = []
     if with_chatgpt:
         setup_chatgpt_config(force=False)
+        enrichment_target_paths = collect_enrichment_target_paths(
+            skip_existing_llm=not reprocess_existing,
+            limit=chatgpt_limit,
+        )
         run_enrichment(
             limit=chatgpt_limit,
             language=chatgpt_language,
@@ -444,6 +564,18 @@ def run_everything(
             reprocess_existing=reprocess_existing,
             keep_browser_open=keep_browser_open,
         )
+        if not chatgpt_dry_run and enrichment_target_paths:
+            missing_llm = count_missing_llm_enrichment(enrichment_target_paths)
+            if missing_llm:
+                completed_llm = len(enrichment_target_paths) - missing_llm
+                raise RuntimeError(
+                    "ChatGPT-Enrichment blieb unvollstaendig "
+                    f"({completed_llm}/{len(enrichment_target_paths)} Assets mit LLM-Daten). "
+                    "Auto-Export wird abgebrochen. "
+                    f"Details stehen unter {repo_relative(PROCESSED_CHATGPT_RUNS_DIR)}."
+                )
+
+    run_auto_export_training_pairs(with_chatgpt=with_chatgpt)
 
     if with_split:
         if CURATED_FILE.exists():
@@ -459,8 +591,9 @@ def interactive_menu() -> None:
         print("2. ChatGPT vorbereiten")
         print("3. Dataset aus PDFs bauen")
         print("4. Asset-Beschreibungen mit ChatGPT anreichern")
-        print("5. Train/Eval-Split bauen")
-        print("6. Alles automatisch")
+        print("5. Kompakte Training-Paare exportieren")
+        print("6. Train/Eval-Split bauen")
+        print("7. Alles automatisch")
         print("0. Beenden")
         choice = input("\nBitte Zahl eingeben: ").strip()
 
@@ -500,8 +633,10 @@ def interactive_menu() -> None:
                     keep_browser_open=keep_browser_open,
                 )
             elif choice == "5":
-                run_training_split()
+                run_export_training_pairs()
             elif choice == "6":
+                run_training_split()
+            elif choice == "7":
                 with_chatgpt = prompt_yes_no("Soll nach dem Dataset-Bau auch direkt ChatGPT-Enrichment laufen?", True)
                 chatgpt_limit = None
                 chatgpt_language = "de"
@@ -588,6 +723,29 @@ def parse_args() -> argparse.Namespace:
         help="Verarbeitet auch bereits angereicherte Assets erneut.",
     )
 
+    export_pairs_parser = subparsers.add_parser(
+        "export-training-pairs",
+        help="Kompakte Bild+JSON-Paare fuer multimodales Fine-Tuning exportieren.",
+    )
+    export_pairs_parser.add_argument(
+        "--min-quality",
+        choices=["low", "medium", "high"],
+        default="medium",
+        help="Minimale Qualitaet fuer den Export.",
+    )
+    export_pairs_parser.add_argument(
+        "--require-llm",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Nur bereits per ChatGPT angereicherte Assets exportieren.",
+    )
+    export_pairs_parser.add_argument(
+        "--allow-review-required",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Auch Assets exportieren, die noch auf manueller Review stehen.",
+    )
+
     subparsers.add_parser("split", help="Train/Eval-Split aus der kuratierten Datei bauen.")
 
     all_parser = subparsers.add_parser("all", help="Gefuehrten Komplettlauf ausfuehren.")
@@ -656,6 +814,14 @@ def main() -> None:
             config_path=args.config,
             reprocess_existing=args.reprocess_existing,
             keep_browser_open=args.keep_browser_open,
+        )
+        return
+
+    if args.command == "export-training-pairs":
+        run_export_training_pairs(
+            min_quality=args.min_quality,
+            require_llm=args.require_llm,
+            allow_review_required=args.allow_review_required,
         )
         return
 

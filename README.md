@@ -14,6 +14,7 @@ Der Launcher zeigt ein einfaches Menue fuer:
 - ChatGPT vorbereiten
 - Dataset aus PDFs bauen
 - Asset-Beschreibungen mit ChatGPT anreichern
+- Kompakte multimodale Training-Paare exportieren
 - Train/Eval-Split bauen
 - Alles automatisch
 
@@ -143,6 +144,46 @@ Wichtige Architektur:
   Allgemeiner JSONL-Batch-Runner fuer Prompt+Attachment-Jobs.
 - `scripts/enrich_multimodal_descriptions.py`
   Dataset-spezifischer Enricher fuer die bestehenden Asset-Annotationen unter `data/processed/multimodal/pairs/*.json`.
+
+## 1c. Kompakte Bild+JSON-Paare fuer multimodales Fine-Tuning exportieren
+
+Die grossen Asset-JSONs unter `data/processed/multimodal/pairs/*.json` bleiben der Arbeitsstand fuer OCR, Provenance, Review und optionales ChatGPT-Enrichment.
+
+Fuer das eigentliche multimodale Training gibt es einen separaten, schlanken Export:
+
+```powershell
+python scripts/export_multimodal_training_pairs.py
+```
+
+Erzeugt:
+
+- `data/processed/multimodal/training_pairs/`
+  ein einziger sauberer Ordner mit Bilddatei und kleinem JSON mit gleichem Basenamen
+- `data/processed/multimodal/training_pairs.jsonl`
+  kompakter Index ueber die exportierten Paare
+- `data/processed/multimodal/training_pairs_manifest.json`
+  Zusammenfassung des Exports
+- `data/processed/multimodal/training_pairs/_instruction.txt`
+  die globale Trainingsinstruktion fuer den strict-vision Export
+
+Das kompakte Paar-JSON folgt `schemas/multimodal_training_pair.schema.json`.
+
+Wichtige Eigenschaften:
+
+- standardmaessig werden nur bereits per ChatGPT angereicherte Assets exportiert
+- standardmaessig werden Assets mit `review_required=true` ausgeschlossen
+- pro Paar wird nur ein kleines Trainings-JSON gespeichert, nicht die volle Audit-Struktur
+- die Bilder werden im Exportordner hart verlinkt, wenn das Dateisystem es erlaubt; sonst kopiert
+- der Export nutzt nur sichtbare, crop-nahe Felder fuer strukturierte Werte und bevorzugt die LLM-Visual-Beschreibung fuer Caption/Summary
+
+Nuetzliche Optionen:
+
+- `--min-quality high`
+  nur die strengsten Assets exportieren
+- `--no-require-llm`
+  auch rein heuristische Assets erlauben
+- `--allow-review-required`
+  auch unsichere Assets exportieren
 
 Der Browser-Layer nutzt ein konfiguriertes Browser-Profil oder eine konfigurierte Cookie-Datei, wenn vorhanden. Ohne explizite Pfade liegen die Standardpfade im ignorierten Projektordner `.runtime/chatgpt/...`. Wenn das nicht reicht, faellt er auf einen interaktiven Login in einem separaten normalen Browserfenster mit demselben Profil zurueck. Dieses Fenster nach dem Login wieder schliessen, damit die Automation das Profil uebernehmen kann. Zugangsdaten werden dabei nicht hart im Code aus den Selektor-Dateien uebernommen.
 
