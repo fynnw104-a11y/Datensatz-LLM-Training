@@ -1,0 +1,232 @@
+Bitte Zahl eingeben: 7
+Soll nach dem Dataset-Bau auch direkt ChatGPT-Enrichment laufen? [Y/n]: y
+
+=== ChatGPT-Setup ===
+Konfiguration bereits vorhanden: ChatGPT/config.json
+- Profilordner: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\browser_profile
+- Cookie-Datei: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\cookies\ChatGPT.json
+- Selektoren: 5 Datei(en)
+- Wenn noch keine Session vorhanden ist, oeffnet sich beim ersten Enrichment ein normales Browserfenster zum Login.
+- Nach erfolgreichem Login dieses Fenster wieder schliessen, damit die Automation das Profil weiterverwenden kann.
+Wie viele Assets sollen angereichert werden? Enter = alle:
+Sprache fuer ChatGPT [de/en], Enter = de: en
+Nur testen ohne Dateien zu aendern? [y/N]: n
+Darf bei Bedarf ein Browser fuer manuellen Login aufgehen? [Y/n]: y
+Sollen bereits angereicherte Assets neu verarbeitet werden? [y/N]: n
+Soll das Automations-Browserfenster nach dem Lauf offen bleiben? [Y/n]: n
+Soll ich am Ende auch den Train/Eval-Split bauen, falls kuratierte Daten existieren? [y/N]: n
+
+=== Projektcheck ===
+[OK] Python: 3.12.10
+[OK] PDF input: 1 PDF-Datei(en) unter data/raw/pdfs
+[OK] PyMuPDF: installiert
+[OK] OCR / Tesseract: {"enabled": true, "available": true, "status": "ok", "version": "5.5.0.20241111", "language": "eng", "command_override": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe", "tessdata_prefix": "C:\\Users\\fynnw\\Desktop\\Datensatz-LLM-Training\\.tessdata"}
+[WARN] Asset-Annotationen: 0 Asset-Paare im zentralen pairs-Ordner gefunden
+[INFO] Training-Paare: Noch kein kompakter Trainingsexport vorhanden.
+[WARN] Train/Eval-Split Quelle: keine kuratierte Trainingsdatei vorhanden
+[OK] ChatGPT-Konfig: ChatGPT/config.json
+[OK] ChatGPT-Selektoren: 5 Selektor-Datei(en) gefunden
+[OK] ChatGPT Profilordner: .runtime/chatgpt/browser_profile
+[OK] ChatGPT Cookie-Datei: .runtime/chatgpt/cookies/ChatGPT.json
+[OK] Selenium: Selenium + selenium-stealth installiert
+[OK] Browser: C:\Program Files\Google\Chrome\Application\chrome.exe
+
+Naechste sinnvolle Schritte:
+
+=== Dataset wird gebaut ===
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+MuPDF error: format error: No common ancestor in structure tree
+
+{
+  "documents": 1,
+  "knowledge_chunks": 2,
+  "trade_candidates": 0,
+  "multimodal_page_annotations": 40,
+  "multimodal_asset_annotations": 59,
+  "multimodal_image_json_pairs": 59,
+  "raw_pdfs_dir": "C:\\Users\\fynnw\\Desktop\\Datensatz-LLM-Training\\data\\raw\\pdfs",
+  "raw_nodes_dir": "C:\\Users\\fynnw\\Desktop\\Datensatz-LLM-Training\\data\\raw\\nodes",
+  "multimodal_status": {
+    "available": true,
+    "status": "ok",
+    "pdf_count": 1,
+    "page_count": 40,
+    "asset_count": 59,
+    "asset_source_counts": {
+      "embedded_image": 59
+    },
+    "render_scale": 2.0,
+    "asset_target_long_edge_px": 2200,
+    "asset_max_render_scale": 4.0,
+    "pairs_dir": "data/processed/multimodal/pairs",
+    "ocr_enabled": true,
+    "ocr_language": "eng",
+    "ocr_runtime": {
+      "enabled": true,
+      "available": true,
+      "status": "ok",
+      "version": "5.5.0.20241111",
+      "language": "eng",
+      "command_override": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+      "tessdata_prefix": "C:\\Users\\fynnw\\Desktop\\Datensatz-LLM-Training\\.tessdata"
+    }
+  }
+}
+
+=== ChatGPT-Setup ===
+Konfiguration bereits vorhanden: ChatGPT/config.json
+- Profilordner: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\browser_profile
+- Cookie-Datei: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\cookies\ChatGPT.json
+- Selektoren: 5 Datei(en)
+- Wenn noch keine Session vorhanden ist, oeffnet sich beim ersten Enrichment ein normales Browserfenster zum Login.
+- Nach erfolgreichem Login dieses Fenster wieder schliessen, damit die Automation das Profil weiterverwenden kann.
+
+=== ChatGPT-Enrichment wird gestartet ===
+[1/59] Processing ChatGPT job 7a5b8da77749170f...
+[1/59] ChatGPT job 7a5b8da77749170f completed.
+[2/59] Processing ChatGPT job 63df2dbe30e79002...
+[2/59] ChatGPT job 63df2dbe30e79002 completed.
+[3/59] Processing ChatGPT job 452bc54e1f8a06fc...
+[3/59] ChatGPT job 452bc54e1f8a06fc completed.
+[4/59] Processing ChatGPT job db4a0b628d35ea83...
+[4/59] ChatGPT job db4a0b628d35ea83 completed.
+[5/59] Processing ChatGPT job 97e4b1154460225c...
+[5/59] ChatGPT job 97e4b1154460225c completed.
+[6/59] Processing ChatGPT job ee86a1d3a88f5a71...
+[6/59] ChatGPT job ee86a1d3a88f5a71 completed.
+[7/59] Processing ChatGPT job 76d2c9f27d38e4f4...
+[7/59] ChatGPT job 76d2c9f27d38e4f4 completed.
+[8/59] Processing ChatGPT job 7ad4232e44f572d1...
+[8/59] ChatGPT job 7ad4232e44f572d1 completed.
+[9/59] Processing ChatGPT job 8e8405507472fe00...
+[9/59] ChatGPT job 8e8405507472fe00 completed.
+[10/59] Processing ChatGPT job 52185f9914fba6ff...
+[10/59] ChatGPT job 52185f9914fba6ff completed.
+[11/59] Processing ChatGPT job c9baaedb04bc1630...
+[11/59] ChatGPT job c9baaedb04bc1630 completed.
+[12/59] Processing ChatGPT job 2595f094873819b9...
+[12/59] ChatGPT job 2595f094873819b9 completed.
+[13/59] Processing ChatGPT job aec707e9585ee821...
+[13/59] ChatGPT job aec707e9585ee821 completed.
+[14/59] Processing ChatGPT job b5450cdf3fc6a546...
+[14/59] ChatGPT job b5450cdf3fc6a546 completed.
+[15/59] Processing ChatGPT job 0bf08311424e574d...
+[15/59] ChatGPT job 0bf08311424e574d completed.
+[16/59] Processing ChatGPT job d4c5cb66e72d2a5b...
+[16/59] ChatGPT job d4c5cb66e72d2a5b completed.
+[17/59] Processing ChatGPT job ad2b517d4e6ed325...
+[17/59] ChatGPT job ad2b517d4e6ed325 completed.
+[18/59] Processing ChatGPT job fdd15c4eee62bf77...
+[18/59] ChatGPT job fdd15c4eee62bf77 completed.
+[19/59] Processing ChatGPT job 0f4fb8b9e3435c04...
+[19/59] ChatGPT job 0f4fb8b9e3435c04 completed.
+[20/59] Processing ChatGPT job 705ae5cb6172269f...
+[20/59] ChatGPT job 705ae5cb6172269f completed.
+[21/59] Processing ChatGPT job 50cb79c4ebc8f36d...
+[21/59] ChatGPT job 50cb79c4ebc8f36d completed.
+[22/59] Processing ChatGPT job fcb58431164905a0...
+[22/59] ChatGPT job fcb58431164905a0 completed.
+[23/59] Processing ChatGPT job e75d8a9a05357419...
+[23/59] ChatGPT job e75d8a9a05357419 completed.
+[24/59] Processing ChatGPT job 928eab2b11e9cd9f...
+[24/59] ChatGPT job 928eab2b11e9cd9f completed.
+[25/59] Processing ChatGPT job e5560bc29af7cb71...
+[25/59] ChatGPT job e5560bc29af7cb71 completed.
+[26/59] Processing ChatGPT job c6d24e1c8c01b8fa...
+[26/59] ChatGPT job c6d24e1c8c01b8fa completed.
+[27/59] Processing ChatGPT job 11217989be0bae08...
+[27/59] ChatGPT job 11217989be0bae08 completed.
+[28/59] Processing ChatGPT job 910e810a5a38bf95...
+[28/59] ChatGPT job 910e810a5a38bf95 completed.
+[29/59] Processing ChatGPT job 8fdd63335f8e3e63...
+[29/59] ChatGPT job 8fdd63335f8e3e63 completed.
+[30/59] Processing ChatGPT job 8f217f9b9ca35f7c...
+[30/59] ChatGPT job 8f217f9b9ca35f7c completed.
+[31/59] Processing ChatGPT job edbfea04d74dedf0...
+[31/59] ChatGPT job edbfea04d74dedf0 completed.
+[32/59] Processing ChatGPT job d4b4d3e5e1e716b6...
+[32/59] ChatGPT job d4b4d3e5e1e716b6 failed: Image upload did not appear in the ChatGPT composer after Selenium selected the file. Debug snapshot: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\debug\20260508_102229_attachment_preview_missing.
+[33/59] Processing ChatGPT job 43ef25d1b1254f39...
+[33/59] ChatGPT job 43ef25d1b1254f39 failed: Image upload did not appear in the ChatGPT composer after Selenium selected the file. Debug snapshot: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\debug\20260508_102254_attachment_preview_missing.
+[34/59] Processing ChatGPT job ff4830a194b31873...
+[34/59] ChatGPT job ff4830a194b31873 failed: Image upload did not appear in the ChatGPT composer after Selenium selected the file. Debug snapshot: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\debug\20260508_102320_attachment_preview_missing.
+[35/59] Processing ChatGPT job 9ff36ac3715b1839...
+[35/59] ChatGPT job 9ff36ac3715b1839 failed: Image upload did not appear in the ChatGPT composer after Selenium selected the file. Debug snapshot: C:\Users\fynnw\Desktop\Datensatz-LLM-Training\.runtime\chatgpt\debug\20260508_102345_attachment_preview_missing.
+[36/59] Processing ChatGPT job 6ddab1291b542213...
