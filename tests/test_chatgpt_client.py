@@ -145,75 +145,14 @@ class ChatGPTClientTests(unittest.TestCase):
 
         self.assertIs(result, on_input)
 
-    def test_find_file_input_candidates_prefers_image_photo_input_for_images(self) -> None:
-        client = self._build_client()
-        root = object()
-        upload_files = mock.Mock()
-        upload_files.is_enabled.return_value = True
-        upload_files.is_displayed.return_value = False
-        upload_photos = mock.Mock()
-        upload_photos.is_enabled.return_value = True
-        upload_photos.is_displayed.return_value = True
-        upload_camera = mock.Mock()
-        upload_camera.is_enabled.return_value = True
-        upload_camera.is_displayed.return_value = True
-        client.driver.find_elements = mock.Mock(return_value=[upload_files, upload_photos, upload_camera])
-        client._composer_root = mock.Mock(return_value=root)
-        client._file_input_belongs_to_composer = mock.Mock(side_effect=[True, False, False])
-
-        def element_attribute(element: object, name: str) -> str:
-            attrs = {
-                upload_files: {"id": "upload-files", "multiple": "multiple"},
-                upload_photos: {"id": "upload-photos", "accept": "image/*", "multiple": "multiple"},
-                upload_camera: {
-                    "id": "upload-camera",
-                    "accept": "image/*",
-                    "capture": "environment",
-                    "multiple": "multiple",
-                },
-            }
-            return attrs.get(element, {}).get(name, "")
-
-        client._element_attribute = mock.Mock(side_effect=element_attribute)
-
-        result = ChatGPTClient._find_file_input_candidates(client, [ROOT / "chart.png"])
-
-        self.assertEqual(result, [upload_photos, upload_files, upload_camera])
-
-    def test_find_file_input_candidates_keeps_composer_input_for_non_images(self) -> None:
-        client = self._build_client()
-        root = object()
-        upload_files = mock.Mock()
-        upload_files.is_enabled.return_value = True
-        upload_files.is_displayed.return_value = True
-        upload_photos = mock.Mock()
-        upload_photos.is_enabled.return_value = True
-        upload_photos.is_displayed.return_value = True
-        client.driver.find_elements = mock.Mock(return_value=[upload_files, upload_photos])
-        client._composer_root = mock.Mock(return_value=root)
-        client._file_input_belongs_to_composer = mock.Mock(side_effect=[True, False])
-
-        def element_attribute(element: object, name: str) -> str:
-            attrs = {
-                upload_files: {"id": "upload-files", "multiple": "multiple"},
-                upload_photos: {"id": "upload-photos", "accept": "image/*", "multiple": "multiple"},
-            }
-            return attrs.get(element, {}).get(name, "")
-
-        client._element_attribute = mock.Mock(side_effect=element_attribute)
-
-        result = ChatGPTClient._find_file_input_candidates(client, [ROOT / "notes.txt"])
-
-        self.assertEqual(result, [upload_files, upload_photos])
-
     def test_attach_files_resets_selected_input_before_upload(self) -> None:
         client = self._build_client()
         file_input = mock.Mock()
         client._prepare_clean_composer = mock.Mock()
         client._dismiss_blocking_ui = mock.Mock()
         client.driver.execute_script = mock.Mock()
-        client._find_file_input_candidates = mock.Mock(return_value=[file_input])
-        client._reset_file_inputs = mock.Mock(return_value=1)
+        client._find_file_input = mock.Mock(return_value=file_input)
+        client._reset_file_input_value = mock.Mock(return_value=True)
         client._wait_for_pending_attachments = mock.Mock(return_value=True)
         client.selector_catalog = mock.Mock()
         client.selector_catalog.find_by_attribute = mock.Mock(return_value=None)
@@ -224,32 +163,9 @@ class ChatGPTClientTests(unittest.TestCase):
             ChatGPTClient.attach_files(client, [attachment])
 
         client._prepare_clean_composer.assert_called_once_with()
-        client._reset_file_inputs.assert_called_once_with()
+        client._reset_file_input_value.assert_called_once_with(file_input)
         file_input.send_keys.assert_called_once_with(str(attachment.resolve()))
-        client._wait_for_pending_attachments.assert_called_once_with(expected_min=1, timeout=15.0)
-
-    def test_attach_files_tries_next_file_input_when_preview_is_missing(self) -> None:
-        client = self._build_client()
-        stale_input = mock.Mock()
-        photo_input = mock.Mock()
-        client._prepare_clean_composer = mock.Mock()
-        client._dismiss_blocking_ui = mock.Mock()
-        client.driver.execute_script = mock.Mock()
-        client._find_file_input_candidates = mock.Mock(return_value=[stale_input, photo_input])
-        client._reset_file_inputs = mock.Mock(return_value=1)
-        client._wait_for_pending_attachments = mock.Mock(side_effect=[False, True])
-        client.selector_catalog = mock.Mock()
-        client.selector_catalog.find_by_attribute = mock.Mock(return_value=None)
-
-        attachment = ROOT / "chart.png"
-
-        with mock.patch("chatgpt_automation.client.time.sleep", return_value=None):
-            ChatGPTClient.attach_files(client, [attachment])
-
-        stale_input.send_keys.assert_called_once_with(str(attachment.resolve()))
-        photo_input.send_keys.assert_called_once_with(str(attachment.resolve()))
-        self.assertEqual(client._reset_file_inputs.call_count, 2)
-        self.assertEqual(client._wait_for_pending_attachments.call_count, 2)
+        client._wait_for_pending_attachments.assert_called_once_with(expected_min=1, timeout=10.0)
 
     def test_pending_attachment_count_uses_visible_preview_count(self) -> None:
         client = self._build_client()
@@ -323,7 +239,7 @@ class ChatGPTClientTests(unittest.TestCase):
         self.assertEqual(client.attach_files.call_count, 2)
         client._reset_before_compose_retry.assert_called_once_with(new_chat=True)
 
-    def test_run_prompt_retries_attachment_preview_failure_in_new_chat(self) -> None:
+    def test_run_prompt_does_not_retry_attachment_preview_missing(self) -> None:
         client = self._build_client()
         attachment = ROOT / "README.md"
         client.ensure_logged_in = mock.Mock()
@@ -331,34 +247,28 @@ class ChatGPTClientTests(unittest.TestCase):
         client._wait_for_composer = mock.Mock()
         client._current_assistant_snapshot = mock.Mock(return_value=[])
         client.attach_files = mock.Mock(
-            side_effect=[
-                RuntimeError("Image upload did not appear in the ChatGPT composer after Selenium selected the file."),
-                None,
-            ]
+            side_effect=RuntimeError(
+                "Image upload did not appear in the ChatGPT composer after Selenium selected the file."
+            )
         )
         client.enter_prompt = mock.Mock()
         client._send_prompt = mock.Mock()
-        client.wait_for_response = mock.Mock(
-            return_value=ChatGPTResponse(
-                message_id="msg-1",
-                model_slug="gpt-test",
-                text="done",
-                url="https://chatgpt.com/c/retried-chat",
-            )
-        )
+        client.wait_for_response = mock.Mock()
         client._reset_before_compose_retry = mock.Mock()
+        client._rebuild_before_compose_retry = mock.Mock()
 
-        response = ChatGPTClient.run_prompt(
-            client,
-            prompt="Describe the image.",
-            attachments=[attachment],
-            new_chat=False,
-            allow_manual_login=True,
-        )
+        with self.assertRaisesRegex(RuntimeError, "Image upload did not appear"):
+            ChatGPTClient.run_prompt(
+                client,
+                prompt="Describe the image.",
+                attachments=[attachment],
+                new_chat=False,
+                allow_manual_login=True,
+            )
 
-        self.assertEqual(response.url, "https://chatgpt.com/c/retried-chat")
-        self.assertEqual(client.attach_files.call_count, 2)
-        client._reset_before_compose_retry.assert_called_once_with(new_chat=True)
+        client.attach_files.assert_called_once_with([attachment])
+        client._reset_before_compose_retry.assert_not_called()
+        client._rebuild_before_compose_retry.assert_not_called()
 
     def test_run_prompt_keeps_non_upload_attachment_errors_to_two_compose_attempts(self) -> None:
         client = self._build_client()
@@ -387,7 +297,7 @@ class ChatGPTClientTests(unittest.TestCase):
         client._reset_before_compose_retry.assert_called_once_with(new_chat=False)
         client._rebuild_before_compose_retry.assert_not_called()
 
-    def test_run_prompt_rebuilds_browser_after_repeated_attachment_preview_failure(self) -> None:
+    def test_run_prompt_rebuilds_browser_after_repeated_retryable_upload_failure(self) -> None:
         client = self._build_client()
         attachment = ROOT / "README.md"
         client.ensure_logged_in = mock.Mock()
@@ -396,8 +306,8 @@ class ChatGPTClientTests(unittest.TestCase):
         client._current_assistant_snapshot = mock.Mock(return_value=[])
         client.attach_files = mock.Mock(
             side_effect=[
-                RuntimeError("Image upload did not appear in the ChatGPT composer after Selenium selected the file."),
-                RuntimeError("Image upload did not appear in the ChatGPT composer after Selenium selected the file."),
+                RuntimeError("Could not upload image attachments to ChatGPT."),
+                RuntimeError("Could not upload image attachments to ChatGPT."),
                 None,
             ]
         )
@@ -427,7 +337,7 @@ class ChatGPTClientTests(unittest.TestCase):
         client._reset_before_compose_retry.assert_called_once_with(new_chat=True)
         client._rebuild_before_compose_retry.assert_called_once_with(allow_manual_login=True)
 
-    def test_run_prompt_rebuilds_browser_before_raising_final_attachment_preview_failure(self) -> None:
+    def test_run_prompt_rebuilds_browser_before_raising_final_retryable_upload_failure(self) -> None:
         client = self._build_client()
         attachment = ROOT / "README.md"
         client.ensure_logged_in = mock.Mock()
@@ -435,9 +345,7 @@ class ChatGPTClientTests(unittest.TestCase):
         client._wait_for_composer = mock.Mock()
         client._current_assistant_snapshot = mock.Mock(return_value=[])
         client.attach_files = mock.Mock(
-            side_effect=RuntimeError(
-                "Image upload did not appear in the ChatGPT composer after Selenium selected the file."
-            )
+            side_effect=RuntimeError("Could not upload image attachments to ChatGPT.")
         )
         client.enter_prompt = mock.Mock()
         client._send_prompt = mock.Mock()
@@ -457,12 +365,10 @@ class ChatGPTClientTests(unittest.TestCase):
         self.assertEqual(client._reset_before_compose_retry.call_count, 1)
         self.assertEqual(client._rebuild_before_compose_retry.call_count, 2)
 
-    def test_run_prompt_preserves_upload_error_when_final_rebuild_fails(self) -> None:
+    def test_run_prompt_preserves_retryable_upload_error_when_final_rebuild_fails(self) -> None:
         client = self._build_client()
         attachment = ROOT / "README.md"
-        upload_error = RuntimeError(
-            "Image upload did not appear in the ChatGPT composer after Selenium selected the file."
-        )
+        upload_error = RuntimeError("Could not upload image attachments to ChatGPT.")
         client.ensure_logged_in = mock.Mock()
         client.start_new_chat = mock.Mock()
         client._wait_for_composer = mock.Mock()
@@ -473,7 +379,7 @@ class ChatGPTClientTests(unittest.TestCase):
         client._reset_before_compose_retry = mock.Mock()
         client._rebuild_before_compose_retry = mock.Mock(side_effect=[None, RuntimeError("rebuild failed")])
 
-        with self.assertRaisesRegex(RuntimeError, "Image upload did not appear"):
+        with self.assertRaisesRegex(RuntimeError, "Could not upload image attachments"):
             ChatGPTClient.run_prompt(
                 client,
                 prompt="Describe the image.",

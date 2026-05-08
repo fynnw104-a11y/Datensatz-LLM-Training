@@ -93,7 +93,6 @@ STOP_BUTTON_ATTRIBUTE_MARKERS = (
 )
 
 FILE_INPUT_CSS = "input[type='file']"
-IMAGE_ATTACHMENT_SUFFIXES = {".apng", ".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
 ASSISTANT_MESSAGE_CSS = "main [data-message-author-role='assistant']"
 DIALOG_CSS_CANDIDATES = [
     "[role='dialog']",
@@ -140,8 +139,6 @@ ATTACHMENT_PREVIEW_CSS_CANDIDATES = [
     "[class*='preview']",
 ]
 ATTACHMENT_UPLOAD_FAILURE_MARKERS = (
-    "attachment_preview_missing",
-    "image upload did not appear",
     "could not upload image attachments",
     "could not upload file attachments",
     "file upload",
@@ -913,19 +910,15 @@ if ((element.getAttribute('contenteditable') || '').toLowerCase() === 'true') {
         return False
 
     def _find_file_input(self) -> WebElement | None:
-        candidates = self._find_file_input_candidates()
-        return candidates[0] if candidates else None
-
-    def _find_file_input_candidates(self, attachments: list[Path] | None = None) -> list[WebElement]:
         try:
             inputs = self.driver.find_elements(By.CSS_SELECTOR, FILE_INPUT_CSS)
         except Exception:
-            return []
+            return None
         if not inputs:
-            return []
+            return None
         root = self._composer_root()
-        image_upload = self._attachments_are_images(attachments or [])
-        scored_inputs: list[tuple[int, int, WebElement]] = []
+        best_element: WebElement | None = None
+        best_score = -1
         for index, element in enumerate(inputs):
             try:
                 if not element.is_enabled():
@@ -933,16 +926,6 @@ if ((element.getAttribute('contenteditable') || '').toLowerCase() === 'true') {
             except StaleElementReferenceException:
                 continue
             score = index
-            element_id = self._element_attribute(element, "id").lower()
-            accept = self._element_attribute(element, "accept").lower()
-            capture = self._element_attribute(element, "capture").lower()
-
-            if image_upload and "image" in accept:
-                score += 120
-            if image_upload and "photo" in element_id:
-                score += 80
-            if capture:
-                score -= 80
             if self._file_input_belongs_to_composer(element, root):
                 score += 100
             if self._element_attribute(element, "multiple").lower() in {"true", "multiple"}:
@@ -952,14 +935,12 @@ if ((element.getAttribute('contenteditable') || '').toLowerCase() === 'true') {
                     score += 20
             except StaleElementReferenceException:
                 continue
-            scored_inputs.append((score, index, element))
-        scored_inputs.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        return [element for _score, _index, element in scored_inputs]
-
-    def _attachments_are_images(self, attachments: list[Path]) -> bool:
-        if not attachments:
-            return False
-        return all(path.suffix.lower() in IMAGE_ATTACHMENT_SUFFIXES for path in attachments)
+            if score >= best_score:
+                best_score = score
+                best_element = element
+        if best_element is not None:
+            return best_element
+        return inputs[-1]
 
     def _file_input_belongs_to_composer(self, file_input: WebElement, root: WebElement | None = None) -> bool:
         if root is None:
@@ -1253,6 +1234,10 @@ return total;
         message = str(exc).lower()
         return any(marker in message for marker in ATTACHMENT_UPLOAD_FAILURE_MARKERS)
 
+    def _is_attachment_preview_missing_failure(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return "attachment_preview_missing" in message or "image upload did not appear" in message
+
     def _compose_and_send_prompt(
         self,
         prompt: str,
@@ -1282,6 +1267,8 @@ return total;
                 return
             except Exception as exc:
                 last_error = exc
+                if bool(attachments) and self._is_attachment_preview_missing_failure(exc):
+                    raise
                 attachment_upload_failure = bool(attachments) and self._is_attachment_upload_failure(exc)
                 if attachment_upload_failure:
                     max_attempts = 3
@@ -1332,61 +1319,52 @@ for (const input of document.querySelectorAll(arguments[0])) {
         )
 
         deadline = time.time() + self.config.page_load_timeout
-        file_inputs = self._find_file_input_candidates(attachments)
-        if not file_inputs:
+        file_input = self._find_file_input()
+        if file_input is None:
             try:
                 self._try_click(self.selector_catalog.find_by_attribute("data-testid", "composer-plus-btn"))
             except Exception:
                 pass
 
         while time.time() < deadline:
-            file_inputs = self._find_file_input_candidates(attachments)
-            if file_inputs:
+            file_input = self._find_file_input()
+            if file_input is not None:
                 break
             time.sleep(0.3)
 
-        if not file_inputs:
+        if file_input is None:
             self._raise_runtime_with_snapshot(
                 "file_input_missing",
                 "Could not find a file input on the ChatGPT page.",
             )
 
-        last_upload_error: Exception | None = None
-        for file_input in file_inputs:
-            self._reset_file_inputs()
+        self._reset_file_input_value(file_input)
+        try:
+            file_input.send_keys("\n".join(normalized_paths))
+        except (ElementNotInteractableException, StaleElementReferenceException) as exc:
             self._dismiss_blocking_ui()
+            refreshed_input = self._find_file_input()
+            if refreshed_input is None:
+                self._raise_runtime_with_snapshot(
+                    "file_input_interaction_failed",
+                    "File upload input became unavailable before Selenium could attach the image.",
+                    cause=exc,
+                )
+            self._reset_file_input_value(refreshed_input)
             try:
-                file_input.send_keys("\n".join(normalized_paths))
-            except (ElementNotInteractableException, StaleElementReferenceException) as exc:
-                last_upload_error = exc
-                continue
-            except Exception as exc:
-                last_upload_error = exc
-                continue
-
-            time.sleep(0.5)
-            if self._wait_for_pending_attachments(expected_min=1, timeout=15.0):
-                return
-            last_upload_error = RuntimeError(
-                "Image upload did not appear in the ChatGPT composer after Selenium selected the file."
-            )
-
-        if isinstance(last_upload_error, (ElementNotInteractableException, StaleElementReferenceException)):
+                refreshed_input.send_keys("\n".join(normalized_paths))
+            except Exception as retry_exc:
+                self._raise_runtime_with_snapshot(
+                    "file_upload_failed",
+                    "Could not upload image attachments to ChatGPT after retrying the file input.",
+                    cause=retry_exc if isinstance(retry_exc, Exception) else exc,
+                )
+        time.sleep(0.5)
+        if not self._wait_for_pending_attachments(expected_min=1, timeout=10.0):
             self._raise_runtime_with_snapshot(
-                "file_input_interaction_failed",
-                "File upload input became unavailable before Selenium could attach the image.",
-                cause=last_upload_error,
+                "attachment_preview_missing",
+                "Image upload did not appear in the ChatGPT composer after Selenium selected the file.",
             )
-        if last_upload_error is not None and "did not appear" not in str(last_upload_error).lower():
-            self._raise_runtime_with_snapshot(
-                "file_upload_failed",
-                "Could not upload image attachments to ChatGPT after trying the available file inputs.",
-                cause=last_upload_error,
-            )
-        self._raise_runtime_with_snapshot(
-            "attachment_preview_missing",
-            "Image upload did not appear in the ChatGPT composer after Selenium selected the file.",
-        )
 
     def _send_prompt(self) -> None:
         try:
