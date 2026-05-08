@@ -13,6 +13,7 @@ from export_multimodal_training_pairs import (
     ROOT,
     TRAINING_PROMPT,
     TRAINING_PROMPT_FILENAME,
+    TRAINING_PAIR_SCHEMA_VERSION,
     build_training_pair_payload,
     load_json,
     root_relative,
@@ -108,6 +109,7 @@ def normalize_training_pairs(output_dir: Path, index_path: Path, manifest_path: 
     manifest["index_rows"] = len(updated_rows)
     manifest["exported_pairs"] = len(updated_rows)
     manifest["normalized_pairs"] = len(updated_rows)
+    manifest["training_pair_schema_version"] = TRAINING_PAIR_SCHEMA_VERSION
     manifest["normalized_at"] = datetime.now(timezone.utc).isoformat()
     manifest["normalizer"] = "strict_visible_grounding_consistency_v1"
     write_json(manifest_path, manifest)

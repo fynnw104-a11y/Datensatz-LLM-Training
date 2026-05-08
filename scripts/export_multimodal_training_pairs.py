@@ -17,10 +17,11 @@ DEFAULT_OUTPUT_DIR = MULTIMODAL_DIR / "training_pairs"
 DEFAULT_INDEX_PATH = MULTIMODAL_DIR / "training_pairs.jsonl"
 DEFAULT_MANIFEST_PATH = MULTIMODAL_DIR / "training_pairs_manifest.json"
 TRAINING_PROMPT_FILENAME = "_instruction.txt"
+TRAINING_PAIR_SCHEMA_VERSION = "1.1"
 TRAINING_PROMPT = (
     "Analyze the attached trading-related image and return a concise JSON object using only directly visible "
-    "evidence from the image crop. Do not use page context or hidden assumptions. If a field is not clearly "
-    "visible, omit it instead of inferring it."
+    "evidence from the image crop. Preserve the structured response shape, separate clearly visible facts from "
+    "uncertain interpretation, and omit fields that are not supported by the image."
 )
 QUALITY_RANKS = {"low": 0, "medium": 1, "high": 2}
 KNOWN_VENUES = {"BINANCE", "BITGET", "BYBIT", "COINBASE", "FXCM", "KRAKEN", "OKX"}
@@ -114,6 +115,37 @@ OBJECTIVE_LIMITATIONS = (
     ("cropped edges limit full chart context", ("cropped", "crop", "edges limit", "broader context", "full context", "full session visibility")),
     ("some header or indicator text is partially obscured", ("header text", "indicator", "timeframe information", "header and indicator")),
 )
+INTERPRETIVE_TEXT_MARKERS = (
+    "appears",
+    "bearish",
+    "bullish",
+    "context",
+    "implied",
+    "inferred",
+    "likely",
+    "may indicate",
+    "might",
+    "potential",
+    "suggests",
+)
+TECHNICAL_LABEL_REQUIREMENTS = {
+    "bos": ("bos label",),
+    "break of structure": ("bos label",),
+    "order block": ("order block label",),
+    "orderblock": ("order block label",),
+    "fvg": ("fvg label",),
+    "fair value gap": ("fvg label",),
+    "liquidity": ("liquidity label",),
+    "crv": ("risk/reward position tool",),
+    "risk reward": ("risk/reward position tool", "long position tool", "short position tool"),
+    "risk/reward": ("risk/reward position tool", "long position tool", "short position tool"),
+    "r:r": ("risk/reward position tool", "long position tool", "short position tool"),
+    "long position": ("long position tool", "risk/reward position tool"),
+    "short position": ("short position tool", "risk/reward position tool"),
+    "stop loss": ("long position tool", "short position tool", "risk/reward position tool"),
+    "take profit": ("long position tool", "short position tool", "risk/reward position tool"),
+    "zone": ("shaded rectangular overlays", "session overlay", "supply/demand zone", "range box"),
+}
 VISIBLE_LABEL_SEPARATOR_PATTERN = re.compile(r"\s*[·•∙,|]\s*|\s+[+\-]\s+")
 
 
@@ -373,6 +405,16 @@ def extract_timeframes_from_text(text: str) -> list[str]:
     return unique_preserving_order(candidates)
 
 
+def extract_explicit_timeframes_from_text(text: str) -> list[str]:
+    normalized = ascii_fold(text).lower()
+    candidates: list[str] = []
+    for token in re.findall(r"\b\d+\s*(?:m|h|d|w|mo)\b|\b(?:m|h|d|w|mn)\s*\d+\b", normalized):
+        timeframe = canonicalize_timeframe_token(token)
+        if timeframe:
+            candidates.append(timeframe)
+    return unique_preserving_order(candidates)
+
+
 def timeframe_display_token(timeframe: str) -> str:
     minute_match = re.fullmatch(r"M(\d+)", timeframe)
     if minute_match:
@@ -622,6 +664,36 @@ def classify_visual_element(raw_value: str) -> str:
         return ""
     if "candlestick" in lowered or "candle" in lowered:
         return "candlestick chart"
+    if any(marker in lowered for marker in ("short position", "short-position", "short tool")):
+        return "short position tool"
+    if any(marker in lowered for marker in ("long position", "long-position", "long tool")):
+        return "long position tool"
+    if any(marker in lowered for marker in ("crv", "risk reward", "risk/reward", "reward/risk", "r:r", "rr tool", "position tool")):
+        return "risk/reward position tool"
+    if "bos" in lowered or "break of structure" in lowered:
+        return "BOS label"
+    if "order block" in lowered or "orderblock" in lowered:
+        return "order block label"
+    if "fvg" in lowered or "fair value gap" in lowered:
+        return "FVG label"
+    if "liquidity" in lowered:
+        return "liquidity label"
+    if any(marker in lowered for marker in ("current price line", "dotted current price", "current-price line")):
+        return "current price line"
+    if any(marker in lowered for marker in ("horizontal line", "support line", "resistance line", "level line", "price line")):
+        return "horizontal price line"
+    if any(marker in lowered for marker in ("vertical line", "time marker", "vertical marker")):
+        return "vertical time marker"
+    if any(marker in lowered for marker in ("trendline", "trend line", "diagonal line", "diagonal connector")):
+        return "trendline or diagonal connector"
+    if any(marker in lowered for marker in ("text annotation", "text label", "annotation label", "visible label", "callout label")):
+        return "text annotation label"
+    if any(marker in lowered for marker in ("price label", "price tag", "axis label")):
+        return "price label"
+    if any(marker in lowered for marker in ("supply", "demand", "order zone", "support zone", "resistance zone")):
+        return "supply/demand zone"
+    if any(marker in lowered for marker in ("range box", "range rectangle", "range area", "range zone")):
+        return "range box"
     if "session" in lowered:
         return "session overlay"
     if "circle" in lowered or "marker" in lowered or "highlight" in lowered:
@@ -678,6 +750,27 @@ def compact_limitations(annotation: dict[str, Any]) -> list[str]:
                 normalized.append(canonical)
                 break
     return unique_preserving_order(normalized)
+
+
+def llm_structured_response(annotation: dict[str, Any]) -> dict[str, Any]:
+    value = get_nested(annotation, "llm_enrichment", "structured_response")
+    return value if isinstance(value, dict) else {}
+
+
+def platform_label(annotation: dict[str, Any], key_visual_elements: list[str]) -> str:
+    visible_text = " ".join(
+        part
+        for part in (
+            visible_ocr_text(annotation),
+            visible_clean_text(annotation),
+            get_nested(annotation, "llm_enrichment", "structured_response", "visible_text"),
+            " ".join(key_visual_elements),
+        )
+        if isinstance(part, str) and part
+    )
+    if "tradingview" in ascii_fold(visible_text).lower():
+        return "TradingView"
+    return ""
 
 
 def asset_type_has_chart_evidence(annotation: dict[str, Any], key_visual_elements: list[str], grounded_fields: dict[str, Any]) -> bool:
@@ -742,9 +835,62 @@ def timeframe_label(timeframes: list[str]) -> str:
 def caption_modifiers(key_visual_elements: list[str]) -> list[str]:
     preferred = []
     for value in key_visual_elements:
-        if value in {"session overlay", "highlighted swing markers", "directional arrows", "shaded rectangular overlays"}:
+        if value in {
+            "session overlay",
+            "highlighted swing markers",
+            "directional arrows",
+            "shaded rectangular overlays",
+            "risk/reward position tool",
+            "long position tool",
+            "short position tool",
+            "text annotation label",
+            "horizontal price line",
+            "trendline or diagonal connector",
+            "range box",
+            "supply/demand zone",
+        }:
             preferred.append(value)
     return unique_preserving_order(preferred)[:2]
+
+
+def caption_has_visible_subject(caption: str, grounded_fields: dict[str, Any]) -> bool:
+    normalized_caption = normalize_label(caption)
+    if not normalized_caption:
+        return False
+    symbol = normalize_label(grounded_fields["primary_symbol"])
+    instrument = normalize_label(grounded_fields["instrument_name"])
+    timeframe = normalize_label(timeframe_label(grounded_fields["timeframes"]))
+    return bool(
+        (symbol and symbol in normalized_caption)
+        or (instrument and instrument in normalized_caption)
+        or (timeframe and timeframe in normalized_caption)
+    )
+
+
+def text_has_interpretation(text: str) -> bool:
+    lowered = ascii_fold(text).lower()
+    return any(marker in lowered for marker in INTERPRETIVE_TEXT_MARKERS)
+
+
+def text_conflicts_with_visible_timeframe(text: str, grounded_fields: dict[str, Any]) -> bool:
+    visible_timeframes = set(grounded_fields["timeframes"])
+    if not text or not visible_timeframes:
+        return False
+    mentioned_timeframes = set(extract_explicit_timeframes_from_text(text))
+    return bool(mentioned_timeframes and mentioned_timeframes.isdisjoint(visible_timeframes))
+
+
+def text_mentions_unsupported_technical_label(text: str, key_visual_elements: list[str]) -> bool:
+    if not text:
+        return False
+    lowered = ascii_fold(text).lower()
+    visible_elements = {ascii_fold(value).lower() for value in key_visual_elements}
+    for marker, required_elements in TECHNICAL_LABEL_REQUIREMENTS.items():
+        if marker not in lowered:
+            continue
+        if not any(required in visible_elements for required in required_elements):
+            return True
+    return False
 
 
 def build_short_caption(asset_type: str, grounded_fields: dict[str, Any], key_visual_elements: list[str]) -> str:
@@ -762,6 +908,29 @@ def build_short_caption(asset_type: str, grounded_fields: dict[str, Any], key_vi
         prefix = "Annotated " if any(value in modifiers for value in ("highlighted swing markers", "directional arrows", "shaded rectangular overlays")) else ""
         return prefix + base + " with " + render_list(modifiers)
     return base
+
+
+def build_quality_short_caption(
+    asset_type: str,
+    grounded_fields: dict[str, Any],
+    key_visual_elements: list[str],
+    annotation: dict[str, Any],
+) -> str:
+    structured = llm_structured_response(annotation)
+    llm_caption = first_non_empty(
+        structured.get("short_caption"),
+        get_nested(annotation, "target_json", "description", "short_caption"),
+    )
+    if (
+        not text_has_interpretation(llm_caption)
+        and not text_conflicts_with_visible_timeframe(llm_caption, grounded_fields)
+        and not text_mentions_unsupported_technical_label(llm_caption, key_visual_elements)
+    ) and (
+        caption_has_visible_subject(llm_caption, grounded_fields)
+        or (llm_caption and not grounded_fields["primary_symbol"] and asset_type)
+    ):
+        return normalize_whitespace(llm_caption)
+    return build_short_caption(asset_type, grounded_fields, key_visual_elements)
 
 
 def build_visual_summary(asset_type: str, grounded_fields: dict[str, Any], key_visual_elements: list[str], annotation: dict[str, Any]) -> str:
@@ -798,15 +967,167 @@ def build_visual_summary(asset_type: str, grounded_fields: dict[str, Any], key_v
     return " ".join(sentences[:3])
 
 
+def build_quality_visual_summary(
+    asset_type: str,
+    grounded_fields: dict[str, Any],
+    key_visual_elements: list[str],
+    annotation: dict[str, Any],
+) -> str:
+    structured = llm_structured_response(annotation)
+    llm_summary = first_non_empty(
+        structured.get("visual_summary"),
+        get_nested(annotation, "target_json", "description", "visual_summary"),
+    )
+    if (
+        llm_summary
+        and not text_has_interpretation(llm_summary)
+        and not text_conflicts_with_visible_timeframe(llm_summary, grounded_fields)
+        and not text_mentions_unsupported_technical_label(llm_summary, key_visual_elements)
+    ) and (
+        caption_has_visible_subject(llm_summary, grounded_fields)
+        or any(element in ascii_fold(llm_summary).lower() for element in ("chart", "candlestick", "price", "axis", "session"))
+    ):
+        return normalize_whitespace(llm_summary)
+    return build_visual_summary(asset_type, grounded_fields, key_visual_elements, annotation)
+
+
+def has_visual_element(key_visual_elements: list[str], *needles: str) -> bool:
+    haystack = ascii_fold(" ".join(key_visual_elements)).lower()
+    return any(needle in haystack for needle in needles)
+
+
+def has_swing_marker_element(key_visual_elements: list[str]) -> bool:
+    return has_visual_element(key_visual_elements, "highlighted swing", "swing marker")
+
+
+def position_tool_direction(key_visual_elements: list[str]) -> str:
+    if has_visual_element(key_visual_elements, "short position"):
+        return "short"
+    if has_visual_element(key_visual_elements, "long position"):
+        return "long"
+    if has_visual_element(key_visual_elements, "risk/reward position"):
+        return "unknown"
+    return ""
+
+
+def build_chart_content(
+    asset_type: str,
+    key_visual_elements: list[str],
+    annotation: dict[str, Any],
+    visual_summary: str,
+) -> dict[str, Any]:
+    if asset_type != "chart":
+        return {}
+    structured = llm_structured_response(annotation)
+    summary = first_non_empty(visual_summary, structured.get("visual_summary"), annotation.get("summary"))
+    if text_has_interpretation(summary) or text_mentions_unsupported_technical_label(summary, key_visual_elements):
+        summary = build_visual_summary(asset_type, derive_grounded_fields(annotation), key_visual_elements, annotation)
+    chart_content: dict[str, Any] = {
+        "chart_type": "candlestick" if has_visual_element(key_visual_elements, "candlestick") else "unknown",
+        "visible_market_behavior": normalize_whitespace(summary) if summary else "visible trading chart with annotated market structure",
+        "has_session_overlay": has_visual_element(key_visual_elements, "session overlay", "session"),
+        "has_swing_markers": has_swing_marker_element(key_visual_elements),
+        "has_directional_arrows": has_visual_element(key_visual_elements, "directional arrow", "arrow"),
+        "has_price_scale": has_visual_element(key_visual_elements, "price scale", "price axis"),
+        "has_time_axis": has_visual_element(key_visual_elements, "time axis", "time label"),
+        "has_shaded_rectangles": has_visual_element(key_visual_elements, "shaded rectangular", "overlay", "zone"),
+        "has_risk_reward_tool": has_visual_element(key_visual_elements, "risk/reward position", "long position", "short position"),
+        "has_text_annotations": has_visual_element(key_visual_elements, "text annotation", "price label", "bos label", "fvg label", "liquidity label", "order block label"),
+        "has_horizontal_price_lines": has_visual_element(key_visual_elements, "horizontal price line", "current price line"),
+        "has_vertical_time_markers": has_visual_element(key_visual_elements, "vertical time marker"),
+        "has_trendlines": has_visual_element(key_visual_elements, "trendline", "diagonal connector"),
+        "has_range_boxes": has_visual_element(key_visual_elements, "range box"),
+        "has_supply_demand_zones": has_visual_element(key_visual_elements, "supply/demand zone"),
+    }
+    tool_direction = position_tool_direction(key_visual_elements)
+    if tool_direction:
+        chart_content["position_tool_direction"] = tool_direction
+    visible_text = ascii_fold(" ".join([visible_ocr_text(annotation), visible_clean_text(annotation), str(structured.get("visible_text") or "")])).lower()
+    if "bos" in visible_text or has_visual_element(key_visual_elements, "bos"):
+        chart_content["has_bos_label"] = True
+    return chart_content
+
+
+def build_annotations_block(key_visual_elements: list[str], annotation: dict[str, Any]) -> dict[str, str]:
+    annotations: dict[str, str] = {}
+    if has_swing_marker_element(key_visual_elements):
+        annotations["swing_markers"] = "highlighted local highs or lows visible in the chart crop"
+    if has_visual_element(key_visual_elements, "directional arrow", "arrow"):
+        annotations["directional_arrows"] = "visible arrows marking a directional move or trade idea"
+    if has_visual_element(key_visual_elements, "session overlay", "session"):
+        annotations["session_overlay"] = "visible session or range overlay on the chart background"
+    if has_visual_element(key_visual_elements, "shaded rectangular", "overlay", "zone"):
+        annotations["shaded_rectangles"] = "visible highlighted zones or projected move areas"
+    if has_visual_element(key_visual_elements, "range box"):
+        annotations["range_boxes"] = "visible boxed range or consolidation areas"
+    if has_visual_element(key_visual_elements, "supply/demand zone"):
+        annotations["supply_demand_zones"] = "visible supply, demand, support, or resistance zones"
+    if has_visual_element(key_visual_elements, "horizontal price line", "current price line"):
+        annotations["horizontal_price_lines"] = "visible horizontal price, support, resistance, or current-price lines"
+    if has_visual_element(key_visual_elements, "vertical time marker"):
+        annotations["vertical_time_markers"] = "visible vertical time marker lines on the chart"
+    if has_visual_element(key_visual_elements, "trendline", "diagonal connector"):
+        annotations["trendlines"] = "visible diagonal trendline or connector line"
+    if has_visual_element(key_visual_elements, "text annotation", "price label"):
+        annotations["text_annotations"] = "visible text or price labels placed over the chart"
+    tool_direction = position_tool_direction(key_visual_elements)
+    if tool_direction:
+        annotations["risk_reward_position_tool"] = (
+            f"visible {tool_direction} position risk/reward tool with entry, risk, and reward regions"
+            if tool_direction in {"long", "short"}
+            else "visible position risk/reward tool with entry, risk, and reward regions"
+        )
+    structured = llm_structured_response(annotation)
+    visible_text = ascii_fold(" ".join([visible_ocr_text(annotation), visible_clean_text(annotation), str(structured.get("visible_text") or "")])).lower()
+    if "bos" in visible_text or has_visual_element(key_visual_elements, "bos"):
+        annotations["bos_label"] = "visible BOS label or break-of-structure annotation"
+    return annotations
+
+
+def build_visible_text_block(grounded_fields: dict[str, Any], annotation: dict[str, Any]) -> dict[str, str]:
+    block: dict[str, str] = {}
+    if grounded_fields["visible_text"]:
+        block["main_header"] = grounded_fields["visible_text"]
+    indicator_text = extract_prefixed_line(visible_clean_text(annotation), "Indicator text:")
+    if indicator_text:
+        block["indicator_text"] = indicator_text
+    if "tradingview" in ascii_fold(" ".join([visible_ocr_text(annotation), visible_clean_text(annotation)])).lower():
+        block["watermark"] = "TradingView"
+    if block:
+        block["other_text_readability"] = "partially readable"
+    return block
+
+
+def build_confidence_block(annotation: dict[str, Any], grounded_fields: dict[str, Any], key_visual_elements: list[str]) -> dict[str, str]:
+    llm_level = llm_confidence(annotation) or "medium"
+    confidence: dict[str, str] = {
+        "overall": llm_level,
+        "annotation_meaning": "medium" if key_visual_elements else "low",
+        "exact_prices": "low",
+    }
+    if grounded_fields["primary_symbol"]:
+        confidence["symbol"] = "high"
+    if grounded_fields["timeframes"]:
+        confidence["timeframe"] = "high"
+    if grounded_fields["venue"]:
+        confidence["venue"] = "high"
+    if platform_label(annotation, key_visual_elements):
+        confidence["platform"] = "high"
+    return confidence
+
+
 def build_training_response(annotation: dict[str, Any]) -> dict[str, Any]:
     grounded_fields = derive_grounded_fields(annotation)
     key_visual_elements = compact_visual_elements(annotation)
     asset_type = repaired_asset_type(annotation, grounded_fields, key_visual_elements)
     limitations = compact_limitations(annotation)
+    platform = platform_label(annotation, key_visual_elements)
 
     response: dict[str, Any] = {}
     if asset_type:
         response["asset_type"] = asset_type
+    if platform:
+        response["platform"] = platform
     if grounded_fields["primary_symbol"]:
         response["primary_symbol"] = grounded_fields["primary_symbol"]
     if grounded_fields["instrument_name"]:
@@ -816,18 +1137,43 @@ def build_training_response(annotation: dict[str, Any]) -> dict[str, Any]:
     if grounded_fields["timeframes"]:
         response["timeframes"] = grounded_fields["timeframes"]
 
-    short_caption = build_short_caption(asset_type or "visual", grounded_fields, key_visual_elements)
+    instrument = {
+        key: value
+        for key, value in {
+            "primary_symbol": grounded_fields["primary_symbol"],
+            "instrument_name": grounded_fields["instrument_name"],
+            "venue": grounded_fields["venue"],
+            "timeframes": grounded_fields["timeframes"],
+        }.items()
+        if value
+    }
+    if instrument:
+        response["instrument"] = instrument
+
+    short_caption = build_quality_short_caption(asset_type or "visual", grounded_fields, key_visual_elements, annotation)
     if short_caption:
         response["short_caption"] = short_caption
 
-    visual_summary = build_visual_summary(asset_type or "visual", grounded_fields, key_visual_elements, annotation)
+    visual_summary = build_quality_visual_summary(asset_type or "visual", grounded_fields, key_visual_elements, annotation)
     if visual_summary:
         response["visual_summary"] = visual_summary
 
+    chart_content = build_chart_content(asset_type, key_visual_elements, annotation, visual_summary)
+    if chart_content:
+        response["chart_content"] = chart_content
+
+    annotations = build_annotations_block(key_visual_elements, annotation)
+    if annotations:
+        response["annotations"] = annotations
+
     if grounded_fields["visible_text"]:
         response["visible_text"] = grounded_fields["visible_text"]
+    visible_text_block = build_visible_text_block(grounded_fields, annotation)
+    if visible_text_block:
+        response["visible_text_details"] = visible_text_block
     if key_visual_elements:
         response["key_visual_elements"] = key_visual_elements
+    response["confidence"] = build_confidence_block(annotation, grounded_fields, key_visual_elements)
     if limitations:
         response["limitations"] = limitations
 
@@ -836,7 +1182,7 @@ def build_training_response(annotation: dict[str, Any]) -> dict[str, Any]:
 
 def build_training_pair_payload(annotation: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": "1.0",
+        "schema_version": TRAINING_PAIR_SCHEMA_VERSION,
         "task_type": "strict_image_to_json",
         "response": build_training_response(annotation),
     }
@@ -962,6 +1308,7 @@ def export_training_pairs(
         "output_dir": root_relative(output_dir),
         "index_path": root_relative(index_path),
         "instruction_path": root_relative(output_dir / TRAINING_PROMPT_FILENAME),
+        "training_pair_schema_version": TRAINING_PAIR_SCHEMA_VERSION,
         "grounding_profile": "strict_visible_grounding",
         "min_quality": min_quality,
         "require_llm": require_llm,

@@ -121,13 +121,20 @@ class NormalizeTrainingPairsTests(unittest.TestCase):
             manifest = normalize_training_pairs(output_dir=output_dir, index_path=index_path, manifest_path=manifest_path)
 
             payload = json.loads(training_json_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], "1.1")
             self.assertEqual(payload["response"]["instrument_name"], "Euro / US-Dollar")
+            self.assertEqual(payload["response"]["instrument"]["instrument_name"], "Euro / US-Dollar")
             self.assertEqual(payload["response"]["timeframes"], ["M5"])
+            self.assertEqual(payload["response"]["instrument"]["timeframes"], ["M5"])
             self.assertEqual(payload["response"]["visible_text"], "Euro / US-Dollar - 5 - FXCM")
+            self.assertEqual(payload["response"]["visible_text_details"]["main_header"], "Euro / US-Dollar - 5 - FXCM")
             self.assertEqual(
                 payload["response"]["short_caption"],
                 "Annotated EURUSD M5 chart with highlighted swing markers and directional arrows",
             )
+            self.assertEqual(payload["response"]["chart_content"]["chart_type"], "candlestick")
+            self.assertTrue(payload["response"]["chart_content"]["has_directional_arrows"])
+            self.assertIn("confidence", payload["response"])
 
             index_rows = [json.loads(line) for line in index_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(index_rows[0]["exported_timeframes"], ["M5"])
@@ -136,6 +143,7 @@ class NormalizeTrainingPairsTests(unittest.TestCase):
             self.assertEqual(manifest["normalized_pairs"], 1)
             self.assertEqual(manifest["index_rows"], 1)
             self.assertEqual(manifest["exported_pairs"], 1)
+            self.assertEqual(manifest["training_pair_schema_version"], "1.1")
             self.assertEqual(manifest["normalizer"], "strict_visible_grounding_consistency_v1")
         finally:
             shutil.rmtree(temp_root, ignore_errors=True)

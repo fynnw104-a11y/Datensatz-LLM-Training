@@ -173,6 +173,7 @@ Wichtige Eigenschaften:
 - standardmaessig werden nur bereits per ChatGPT angereicherte Assets exportiert
 - standardmaessig werden Assets mit `review_required=true` ausgeschlossen
 - pro Paar wird nur ein kleines Trainings-JSON gespeichert, nicht die volle Audit-Struktur
+- das Trainings-JSON enthaelt weiterhin die flachen Kernfelder fuer Kompatibilitaet, ergaenzt sie aber um strukturierte Felder wie `instrument`, `chart_content`, `annotations`, `visible_text_details` und `confidence`
 - die Bilder werden im Exportordner hart verlinkt, wenn das Dateisystem es erlaubt; sonst kopiert
 - der Export repariert strukturierte Felder bevorzugt aus sichtbaren Labelzeilen und OCR-nahen Signalen statt aus Kontext
 - Caption, Summary, Visual Elements und Limitations werden auf sichtbare, objektive Formulierungen verdichtet
