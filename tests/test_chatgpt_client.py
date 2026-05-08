@@ -54,6 +54,20 @@ class ChatGPTClientTests(unittest.TestCase):
         self.assertEqual(client.driver.visited_urls, [])
         client.save_cookies.assert_called_once_with()
 
+    def test_ensure_logged_in_rebuilds_missing_driver(self) -> None:
+        client = self._build_client()
+        client.driver = None
+        rebuilt_driver = _FakeDriver("https://chatgpt.com/")
+        client._rebuild_driver = mock.Mock(side_effect=lambda: setattr(client, "driver", rebuilt_driver))
+        client.is_logged_in = mock.Mock(return_value=True)
+        client.save_cookies = mock.Mock()
+
+        ChatGPTClient.ensure_logged_in(client, allow_manual_login=True)
+
+        client._rebuild_driver.assert_called_once_with()
+        client.save_cookies.assert_called_once_with()
+        self.assertIs(client.driver, rebuilt_driver)
+
     def test_run_prompt_restores_last_conversation_when_reusing_chat(self) -> None:
         client = self._build_client()
         client._last_conversation_url = "https://chatgpt.com/c/existing-chat"
@@ -261,6 +275,131 @@ class ChatGPTClientTests(unittest.TestCase):
         self.assertEqual(response.url, "https://chatgpt.com/c/retried-chat")
         self.assertEqual(client.attach_files.call_count, 2)
         client._reset_before_compose_retry.assert_called_once_with(new_chat=True)
+
+    def test_run_prompt_keeps_non_upload_attachment_errors_to_two_compose_attempts(self) -> None:
+        client = self._build_client()
+        attachment = ROOT / "README.md"
+        client.ensure_logged_in = mock.Mock()
+        client.start_new_chat = mock.Mock()
+        client._wait_for_composer = mock.Mock()
+        client._current_assistant_snapshot = mock.Mock(return_value=[])
+        client.attach_files = mock.Mock()
+        client.enter_prompt = mock.Mock(side_effect=RuntimeError("Prompt entry failed."))
+        client._send_prompt = mock.Mock()
+        client._reset_before_compose_retry = mock.Mock()
+        client._rebuild_before_compose_retry = mock.Mock()
+
+        with self.assertRaises(RuntimeError):
+            ChatGPTClient.run_prompt(
+                client,
+                prompt="Describe the image.",
+                attachments=[attachment],
+                new_chat=False,
+                allow_manual_login=True,
+            )
+
+        self.assertEqual(client.attach_files.call_count, 2)
+        self.assertEqual(client.enter_prompt.call_count, 2)
+        client._reset_before_compose_retry.assert_called_once_with(new_chat=False)
+        client._rebuild_before_compose_retry.assert_not_called()
+
+    def test_run_prompt_rebuilds_browser_after_repeated_attachment_preview_failure(self) -> None:
+        client = self._build_client()
+        attachment = ROOT / "README.md"
+        client.ensure_logged_in = mock.Mock()
+        client.start_new_chat = mock.Mock()
+        client._wait_for_composer = mock.Mock()
+        client._current_assistant_snapshot = mock.Mock(return_value=[])
+        client.attach_files = mock.Mock(
+            side_effect=[
+                RuntimeError("Image upload did not appear in the ChatGPT composer after Selenium selected the file."),
+                RuntimeError("Image upload did not appear in the ChatGPT composer after Selenium selected the file."),
+                None,
+            ]
+        )
+        client.enter_prompt = mock.Mock()
+        client._send_prompt = mock.Mock()
+        client.wait_for_response = mock.Mock(
+            return_value=ChatGPTResponse(
+                message_id="msg-1",
+                model_slug="gpt-test",
+                text="done",
+                url="https://chatgpt.com/c/rebuilt-chat",
+            )
+        )
+        client._reset_before_compose_retry = mock.Mock()
+        client._rebuild_before_compose_retry = mock.Mock()
+
+        response = ChatGPTClient.run_prompt(
+            client,
+            prompt="Describe the image.",
+            attachments=[attachment],
+            new_chat=False,
+            allow_manual_login=True,
+        )
+
+        self.assertEqual(response.url, "https://chatgpt.com/c/rebuilt-chat")
+        self.assertEqual(client.attach_files.call_count, 3)
+        client._reset_before_compose_retry.assert_called_once_with(new_chat=True)
+        client._rebuild_before_compose_retry.assert_called_once_with(allow_manual_login=True)
+
+    def test_run_prompt_rebuilds_browser_before_raising_final_attachment_preview_failure(self) -> None:
+        client = self._build_client()
+        attachment = ROOT / "README.md"
+        client.ensure_logged_in = mock.Mock()
+        client.start_new_chat = mock.Mock()
+        client._wait_for_composer = mock.Mock()
+        client._current_assistant_snapshot = mock.Mock(return_value=[])
+        client.attach_files = mock.Mock(
+            side_effect=RuntimeError(
+                "Image upload did not appear in the ChatGPT composer after Selenium selected the file."
+            )
+        )
+        client.enter_prompt = mock.Mock()
+        client._send_prompt = mock.Mock()
+        client._reset_before_compose_retry = mock.Mock()
+        client._rebuild_before_compose_retry = mock.Mock()
+
+        with self.assertRaises(RuntimeError):
+            ChatGPTClient.run_prompt(
+                client,
+                prompt="Describe the image.",
+                attachments=[attachment],
+                new_chat=False,
+                allow_manual_login=True,
+            )
+
+        self.assertEqual(client.attach_files.call_count, 3)
+        self.assertEqual(client._reset_before_compose_retry.call_count, 1)
+        self.assertEqual(client._rebuild_before_compose_retry.call_count, 2)
+
+    def test_run_prompt_preserves_upload_error_when_final_rebuild_fails(self) -> None:
+        client = self._build_client()
+        attachment = ROOT / "README.md"
+        upload_error = RuntimeError(
+            "Image upload did not appear in the ChatGPT composer after Selenium selected the file."
+        )
+        client.ensure_logged_in = mock.Mock()
+        client.start_new_chat = mock.Mock()
+        client._wait_for_composer = mock.Mock()
+        client._current_assistant_snapshot = mock.Mock(return_value=[])
+        client.attach_files = mock.Mock(side_effect=upload_error)
+        client.enter_prompt = mock.Mock()
+        client._send_prompt = mock.Mock()
+        client._reset_before_compose_retry = mock.Mock()
+        client._rebuild_before_compose_retry = mock.Mock(side_effect=[None, RuntimeError("rebuild failed")])
+
+        with self.assertRaisesRegex(RuntimeError, "Image upload did not appear"):
+            ChatGPTClient.run_prompt(
+                client,
+                prompt="Describe the image.",
+                attachments=[attachment],
+                new_chat=False,
+                allow_manual_login=True,
+            )
+
+        self.assertEqual(client.attach_files.call_count, 3)
+        self.assertEqual(client._rebuild_before_compose_retry.call_count, 2)
 
 
 if __name__ == "__main__":

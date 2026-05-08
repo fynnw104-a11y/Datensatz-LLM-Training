@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -392,6 +393,9 @@ window.chrome = window.chrome || { runtime: {} };
         self._rebuild_driver()
 
     def ensure_logged_in(self, allow_manual_login: bool = True) -> None:
+        if self.driver is None:
+            self._rebuild_driver()
+
         if self.is_logged_in():
             self.save_cookies()
             return
@@ -1222,16 +1226,35 @@ return total;
         self._reload_conversation_for_clean_composer()
         self._dismiss_blocking_ui()
 
+    def _rebuild_before_compose_retry(self, allow_manual_login: bool) -> None:
+        self._last_conversation_url = None
+        self._rebuild_driver()
+        self.ensure_logged_in(allow_manual_login=allow_manual_login)
+        self.start_new_chat()
+
     def _is_attachment_upload_failure(self, exc: Exception) -> bool:
         message = str(exc).lower()
         return any(marker in message for marker in ATTACHMENT_UPLOAD_FAILURE_MARKERS)
 
-    def _compose_and_send_prompt(self, prompt: str, attachments: list[Path] | None, new_chat: bool) -> None:
+    def _compose_and_send_prompt(
+        self,
+        prompt: str,
+        attachments: list[Path] | None,
+        new_chat: bool,
+        allow_manual_login: bool,
+    ) -> None:
         last_error: Exception | None = None
         retry_new_chat = new_chat
-        for attempt in range(2):
+        rebuild_before_attempt = False
+        max_attempts = 2
+        attempt = 0
+        while attempt < max_attempts:
             if attempt > 0:
-                self._reset_before_compose_retry(new_chat=retry_new_chat)
+                if rebuild_before_attempt:
+                    self._rebuild_before_compose_retry(allow_manual_login=allow_manual_login)
+                    rebuild_before_attempt = False
+                else:
+                    self._reset_before_compose_retry(new_chat=retry_new_chat)
             try:
                 if attachments:
                     self.attach_files(attachments)
@@ -1242,10 +1265,19 @@ return total;
                 return
             except Exception as exc:
                 last_error = exc
-                if attempt == 0:
-                    retry_new_chat = new_chat or (bool(attachments) and self._is_attachment_upload_failure(exc))
+                attachment_upload_failure = bool(attachments) and self._is_attachment_upload_failure(exc)
+                if attachment_upload_failure:
+                    max_attempts = 3
+                if attempt < max_attempts - 1:
+                    retry_new_chat = new_chat or attachment_upload_failure
+                    rebuild_before_attempt = attachment_upload_failure and attempt > 0
+                    attempt += 1
                     continue
+                if attachment_upload_failure:
+                    with suppress(Exception):
+                        self._rebuild_before_compose_retry(allow_manual_login=allow_manual_login)
                 raise
+            attempt += 1
         if last_error is not None:
             raise last_error
 
@@ -1427,7 +1459,12 @@ for (const input of document.querySelectorAll(arguments[0])) {
             message_key
             for message_key, _message_id, _text, _model_slug in self._current_assistant_snapshot()
         }
-        self._compose_and_send_prompt(prompt=prompt, attachments=attachments, new_chat=new_chat)
+        self._compose_and_send_prompt(
+            prompt=prompt,
+            attachments=attachments,
+            new_chat=new_chat,
+            allow_manual_login=allow_manual_login,
+        )
         response = self.wait_for_response(previous_message_ids)
         if response.url:
             self._last_conversation_url = response.url
