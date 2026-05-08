@@ -145,14 +145,75 @@ class ChatGPTClientTests(unittest.TestCase):
 
         self.assertIs(result, on_input)
 
+    def test_find_file_input_candidates_prefers_image_photo_input_for_images(self) -> None:
+        client = self._build_client()
+        root = object()
+        upload_files = mock.Mock()
+        upload_files.is_enabled.return_value = True
+        upload_files.is_displayed.return_value = False
+        upload_photos = mock.Mock()
+        upload_photos.is_enabled.return_value = True
+        upload_photos.is_displayed.return_value = True
+        upload_camera = mock.Mock()
+        upload_camera.is_enabled.return_value = True
+        upload_camera.is_displayed.return_value = True
+        client.driver.find_elements = mock.Mock(return_value=[upload_files, upload_photos, upload_camera])
+        client._composer_root = mock.Mock(return_value=root)
+        client._file_input_belongs_to_composer = mock.Mock(side_effect=[True, False, False])
+
+        def element_attribute(element: object, name: str) -> str:
+            attrs = {
+                upload_files: {"id": "upload-files", "multiple": "multiple"},
+                upload_photos: {"id": "upload-photos", "accept": "image/*", "multiple": "multiple"},
+                upload_camera: {
+                    "id": "upload-camera",
+                    "accept": "image/*",
+                    "capture": "environment",
+                    "multiple": "multiple",
+                },
+            }
+            return attrs.get(element, {}).get(name, "")
+
+        client._element_attribute = mock.Mock(side_effect=element_attribute)
+
+        result = ChatGPTClient._find_file_input_candidates(client, [ROOT / "chart.png"])
+
+        self.assertEqual(result, [upload_photos, upload_files, upload_camera])
+
+    def test_find_file_input_candidates_keeps_composer_input_for_non_images(self) -> None:
+        client = self._build_client()
+        root = object()
+        upload_files = mock.Mock()
+        upload_files.is_enabled.return_value = True
+        upload_files.is_displayed.return_value = True
+        upload_photos = mock.Mock()
+        upload_photos.is_enabled.return_value = True
+        upload_photos.is_displayed.return_value = True
+        client.driver.find_elements = mock.Mock(return_value=[upload_files, upload_photos])
+        client._composer_root = mock.Mock(return_value=root)
+        client._file_input_belongs_to_composer = mock.Mock(side_effect=[True, False])
+
+        def element_attribute(element: object, name: str) -> str:
+            attrs = {
+                upload_files: {"id": "upload-files", "multiple": "multiple"},
+                upload_photos: {"id": "upload-photos", "accept": "image/*", "multiple": "multiple"},
+            }
+            return attrs.get(element, {}).get(name, "")
+
+        client._element_attribute = mock.Mock(side_effect=element_attribute)
+
+        result = ChatGPTClient._find_file_input_candidates(client, [ROOT / "notes.txt"])
+
+        self.assertEqual(result, [upload_files, upload_photos])
+
     def test_attach_files_resets_selected_input_before_upload(self) -> None:
         client = self._build_client()
         file_input = mock.Mock()
         client._prepare_clean_composer = mock.Mock()
         client._dismiss_blocking_ui = mock.Mock()
         client.driver.execute_script = mock.Mock()
-        client._find_file_input = mock.Mock(return_value=file_input)
-        client._reset_file_input_value = mock.Mock(return_value=True)
+        client._find_file_input_candidates = mock.Mock(return_value=[file_input])
+        client._reset_file_inputs = mock.Mock(return_value=1)
         client._wait_for_pending_attachments = mock.Mock(return_value=True)
         client.selector_catalog = mock.Mock()
         client.selector_catalog.find_by_attribute = mock.Mock(return_value=None)
@@ -163,9 +224,32 @@ class ChatGPTClientTests(unittest.TestCase):
             ChatGPTClient.attach_files(client, [attachment])
 
         client._prepare_clean_composer.assert_called_once_with()
-        client._reset_file_input_value.assert_called_once_with(file_input)
+        client._reset_file_inputs.assert_called_once_with()
         file_input.send_keys.assert_called_once_with(str(attachment.resolve()))
-        client._wait_for_pending_attachments.assert_called_once_with(expected_min=1, timeout=10.0)
+        client._wait_for_pending_attachments.assert_called_once_with(expected_min=1, timeout=15.0)
+
+    def test_attach_files_tries_next_file_input_when_preview_is_missing(self) -> None:
+        client = self._build_client()
+        stale_input = mock.Mock()
+        photo_input = mock.Mock()
+        client._prepare_clean_composer = mock.Mock()
+        client._dismiss_blocking_ui = mock.Mock()
+        client.driver.execute_script = mock.Mock()
+        client._find_file_input_candidates = mock.Mock(return_value=[stale_input, photo_input])
+        client._reset_file_inputs = mock.Mock(return_value=1)
+        client._wait_for_pending_attachments = mock.Mock(side_effect=[False, True])
+        client.selector_catalog = mock.Mock()
+        client.selector_catalog.find_by_attribute = mock.Mock(return_value=None)
+
+        attachment = ROOT / "chart.png"
+
+        with mock.patch("chatgpt_automation.client.time.sleep", return_value=None):
+            ChatGPTClient.attach_files(client, [attachment])
+
+        stale_input.send_keys.assert_called_once_with(str(attachment.resolve()))
+        photo_input.send_keys.assert_called_once_with(str(attachment.resolve()))
+        self.assertEqual(client._reset_file_inputs.call_count, 2)
+        self.assertEqual(client._wait_for_pending_attachments.call_count, 2)
 
     def test_pending_attachment_count_uses_visible_preview_count(self) -> None:
         client = self._build_client()
