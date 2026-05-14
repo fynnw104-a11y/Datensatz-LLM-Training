@@ -12,7 +12,14 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chatgpt_automation.batch import BatchJob, extract_json_fragment, load_jobs, parse_json_response, run_batch_jobs
+from chatgpt_automation.batch import (
+    BatchJob,
+    extract_json_fragment,
+    is_upload_unavailable_error,
+    load_jobs,
+    parse_json_response,
+    run_batch_jobs,
+)
 from chatgpt_automation.client import ChatGPTResponse
 from chatgpt_automation.enrichment import (
     apply_asset_llm_enrichment,
@@ -106,6 +113,79 @@ class BatchParsingTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "error")
         self.assertEqual(rows[0]["error"], "ChatGPT response did not contain valid JSON.")
         self.assertIsNone(rows[0]["assistant_json"])
+
+    def test_run_batch_jobs_stops_after_upload_unavailable_error(self) -> None:
+        class StubClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run_prompt(
+                self,
+                prompt: str,
+                attachments: list[Path],
+                new_chat: bool,
+                allow_manual_login: bool,
+            ) -> ChatGPTResponse:
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError(
+                        "Image upload did not appear in the ChatGPT composer after Selenium selected the file."
+                    )
+                return ChatGPTResponse(
+                    message_id="msg-2",
+                    model_slug="gpt-test",
+                    text='{"short_caption":"BTC chart","confidence":"high"}',
+                    url="https://chatgpt.com/c/test",
+                )
+
+        attachment = ROOT / "README.md"
+        client = StubClient()
+        rows = run_batch_jobs(
+            client=client,
+            jobs=[
+                BatchJob(job_id="job-1", prompt="Describe one.", attachments=(attachment,), metadata={}),
+                BatchJob(job_id="job-2", prompt="Describe two.", attachments=(attachment,), metadata={}),
+            ],
+        )
+
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "error")
+        self.assertTrue(is_upload_unavailable_error(rows[0]["error"], (attachment,)))
+
+    def test_run_batch_jobs_does_not_stop_text_batch_on_upload_wording(self) -> None:
+        class StubClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run_prompt(
+                self,
+                prompt: str,
+                attachments: list[Path],
+                new_chat: bool,
+                allow_manual_login: bool,
+            ) -> ChatGPTResponse:
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("Could not upload image attachments to ChatGPT.")
+                return ChatGPTResponse(
+                    message_id="msg-2",
+                    model_slug="gpt-test",
+                    text='{"short_caption":"Text-only job","confidence":"high"}',
+                    url="https://chatgpt.com/c/test",
+                )
+
+        client = StubClient()
+        rows = run_batch_jobs(
+            client=client,
+            jobs=[
+                BatchJob(job_id="job-1", prompt="Text one.", attachments=(), metadata={}),
+                BatchJob(job_id="job-2", prompt="Text two.", attachments=(), metadata={}),
+            ],
+        )
+
+        self.assertEqual(client.calls, 2)
+        self.assertEqual([row["status"] for row in rows], ["error", "ok"])
 
 
 class EnrichmentJobTests(unittest.TestCase):

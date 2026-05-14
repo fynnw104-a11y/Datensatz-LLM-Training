@@ -8,6 +8,19 @@ from typing import Any
 
 from .client import ChatGPTClient
 
+UPLOAD_UNAVAILABLE_ERROR_MARKERS = (
+    "attachment_preview_missing",
+    "image upload did not appear",
+    "could not upload image attachments to chatgpt",
+    "file upload is not available",
+    "file uploads are not available",
+    "file uploads are currently unavailable",
+    "uploads are not available",
+    "uploads are currently unavailable",
+    "upload limit",
+    "usage limit",
+)
+
 
 @dataclass(frozen=True)
 class BatchJob:
@@ -173,10 +186,18 @@ def write_results(path: Path, rows: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def is_upload_unavailable_error(error: object, attachments: tuple[Path, ...] | list[Path]) -> bool:
+    if not attachments or not isinstance(error, str):
+        return False
+    normalized_error = error.lower()
+    return any(marker in normalized_error for marker in UPLOAD_UNAVAILABLE_ERROR_MARKERS)
+
+
 def run_batch_jobs(
     client: ChatGPTClient,
     jobs: list[BatchJob],
     allow_manual_login: bool = True,
+    stop_on_upload_unavailable: bool = True,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     total_jobs = len(jobs)
@@ -227,4 +248,12 @@ def run_batch_jobs(
                 "metadata": job.metadata,
             }
         )
+        if stop_on_upload_unavailable and is_upload_unavailable_error(error, job.attachments):
+            remaining_jobs = total_jobs - index
+            print(
+                "Stopping ChatGPT batch because image uploads appear to be unavailable. "
+                f"{remaining_jobs} job(s) remain for a later resume run.",
+                flush=True,
+            )
+            break
     return rows

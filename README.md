@@ -201,10 +201,12 @@ Wirkung:
 - jedes Asset-Bild wird mit Kontexttext und OCR an ChatGPT geschickt
 - der Multimodal-Enricher verarbeitet standardmaessig bis zu 20 Assets pro Chat und startet dann automatisch einen frischen Chat
 - mit `--new-chat-per-asset` erzwingst du wieder einen komplett frischen Chat fuer jedes Asset
+- wenn ChatGPT keine Bild-Uploads mehr annimmt, stoppt der Batch und laesst die uebrigen Assets fuer den naechsten Lauf offen
 - die Antwort wird als strukturierte `llm_enrichment`-Sektion gespeichert
 - `caption`, `summary`, `description`, `clean_text` und die `target_json.description`-Felder werden mit der LLM-Beschreibung aktualisiert
 - `target_json.observed.visible_in_crop` bleibt crop-grounded und wird nicht mit Kontext- oder LLM-Zusatztext ueberschrieben
 - rohe Batch-Ergebnisse landen unter `data/processed/chatgpt_runs/`
+- bei einem erneuten Dataset-Build werden bestehende LLM-Enrichments nur uebernommen, wenn das neu erzeugte Bild byte-identisch zum bisherigen Bild ist
 
 Nutzliche Optionen:
 

@@ -18,6 +18,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from chatgpt_automation.browser import discover_browser_executable, require_selenium
 from chatgpt_automation.config import DEFAULT_CONFIG_PATH, load_config
+from export_multimodal_training_pairs import should_export_annotation
 from prepare_dataset import RAW_PDFS_DIR, detect_ocr_runtime, import_pymupdf
 
 CHATGPT_DIR = ROOT / "ChatGPT"
@@ -98,6 +99,27 @@ def count_missing_llm_enrichment(annotation_paths: Iterable[Path]) -> int:
         if not isinstance(annotation.get("llm_enrichment"), dict):
             missing += 1
     return missing
+
+
+def count_exportable_llm_assets(
+    min_quality: str = "medium",
+    allow_review_required: bool = False,
+) -> int:
+    exportable = 0
+    for annotation_path in sorted(ROOT.glob(MULTIMODAL_ASSET_GLOB)):
+        annotation = load_json(annotation_path)
+        should_export, _reason = should_export_annotation(
+            annotation=annotation,
+            min_quality=min_quality,
+            require_llm=True,
+            allow_review_required=allow_review_required,
+        )
+        if not should_export:
+            continue
+        image_path = ROOT / str(annotation.get("image_path", ""))
+        if image_path.is_file():
+            exportable += 1
+    return exportable
 
 
 def print_header(title: str) -> None:
@@ -568,11 +590,26 @@ def run_everything(
             missing_llm = count_missing_llm_enrichment(enrichment_target_paths)
             if missing_llm:
                 completed_llm = len(enrichment_target_paths) - missing_llm
-                raise RuntimeError(
+                exportable_llm = count_exportable_llm_assets(
+                    min_quality="medium",
+                    allow_review_required=False,
+                )
+                if exportable_llm <= 0:
+                    raise RuntimeError(
+                        "ChatGPT-Enrichment blieb unvollstaendig "
+                        f"({completed_llm}/{len(enrichment_target_paths)} Assets mit LLM-Daten), "
+                        "und es gibt keine exportierbaren LLM-Assets. "
+                        "Auto-Export wird abgebrochen, damit ein vorheriger Trainingsexport erhalten bleibt. "
+                        f"Details stehen unter {repo_relative(PROCESSED_CHATGPT_RUNS_DIR)}."
+                    )
+                print(
                     "ChatGPT-Enrichment blieb unvollstaendig "
                     f"({completed_llm}/{len(enrichment_target_paths)} Assets mit LLM-Daten). "
-                    "Auto-Export wird abgebrochen. "
-                    f"Details stehen unter {repo_relative(PROCESSED_CHATGPT_RUNS_DIR)}."
+                    f"{exportable_llm} exportierbare LLM-Assets werden jetzt trotzdem exportiert. "
+                    "Beim naechsten Lauf werden fehlende Assets automatisch weiterverarbeitet, "
+                    "solange bestehende LLM-Daten nicht explizit neu verarbeitet werden. "
+                    f"Details stehen unter {repo_relative(PROCESSED_CHATGPT_RUNS_DIR)}.",
+                    flush=True,
                 )
 
     run_auto_export_training_pairs(with_chatgpt=with_chatgpt)

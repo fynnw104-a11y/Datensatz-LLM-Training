@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+from copy import deepcopy
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -42,6 +43,27 @@ ASSET_MAX_CONTEXT_BLOCKS = int(os.getenv("ASSET_MAX_CONTEXT_BLOCKS", "6"))
 DRAWING_CLUSTER_GAP = float(os.getenv("DRAWING_CLUSTER_GAP", "14"))
 TEXT_GAP_MIN_RATIO = float(os.getenv("TEXT_GAP_MIN_RATIO", "0.16"))
 SUMMARY_CHAR_LIMIT = 360
+LLM_ENRICHMENT_PRESERVED_FIELDS = (
+    "caption",
+    "summary",
+    "description",
+    "clean_text",
+    "extraction_methods",
+    "primary_symbol",
+    "instrument_name",
+    "venue",
+    "symbols",
+    "timeframes",
+    "review_required",
+    "llm_enrichment",
+)
+LLM_TARGET_DESCRIPTION_FIELDS = (
+    "short_caption",
+    "visual_summary",
+    "context_augmented_summary",
+    "key_visual_elements",
+    "limitations",
+)
 
 BBox = tuple[float, float, float, float]
 
@@ -2650,6 +2672,153 @@ def reset_multimodal_asset_exports() -> None:
                 shutil.rmtree(stale_dir)
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def collect_existing_llm_enrichments() -> dict[str, dict[str, Any]]:
+    existing_enrichments: dict[str, dict[str, Any]] = {}
+    if not MULTIMODAL_PAIRS_DIR.exists():
+        return existing_enrichments
+
+    for annotation_path in sorted(MULTIMODAL_PAIRS_DIR.glob("*.json")):
+        try:
+            annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(annotation, dict):
+            continue
+        if annotation.get("pair_type") != "visual_asset":
+            continue
+        if not isinstance(annotation.get("llm_enrichment"), dict):
+            continue
+        annotation_id = str(annotation.get("id", "")).strip()
+        if not annotation_id:
+            continue
+
+        image_path = ROOT / str(annotation.get("image_path", ""))
+        if not image_path.is_file():
+            continue
+        existing_enrichments[annotation_id] = {
+            "annotation": annotation,
+            "image_sha256": file_sha256(image_path),
+        }
+    return existing_enrichments
+
+
+def find_existing_llm_enrichment(
+    annotation: dict[str, Any],
+    existing_enrichments: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any] | None, str]:
+    annotation_id = str(annotation.get("id", "")).strip()
+    existing_by_id = existing_enrichments.get(annotation_id) if annotation_id else None
+
+    image_path = ROOT / str(annotation.get("image_path", ""))
+    if not image_path.is_file():
+        if existing_by_id is not None:
+            return None, "missing_current_image"
+        return None, "none"
+
+    current_image_sha256 = file_sha256(image_path)
+    if existing_by_id is not None and current_image_sha256 == existing_by_id.get("image_sha256"):
+        return existing_by_id, "preserved"
+
+    hash_matches: list[dict[str, Any]] = []
+    seen_match_ids: set[str] = set()
+    for existing in existing_enrichments.values():
+        if not isinstance(existing, dict):
+            continue
+        if current_image_sha256 != existing.get("image_sha256"):
+            continue
+        existing_annotation = existing.get("annotation")
+        if not isinstance(existing_annotation, dict):
+            continue
+        existing_id = str(existing_annotation.get("id", "")).strip()
+        match_key = existing_id or str(len(hash_matches))
+        if match_key in seen_match_ids:
+            continue
+        seen_match_ids.add(match_key)
+        hash_matches.append(existing)
+
+    if len(hash_matches) == 1:
+        return hash_matches[0], "preserved"
+    if len(hash_matches) > 1:
+        return None, "duplicate_image_hash"
+    if existing_by_id is not None:
+        return None, "image_changed"
+    return None, "none"
+
+
+def merge_existing_llm_target_json(
+    target_json: dict[str, Any],
+    existing_target_json: dict[str, Any],
+) -> dict[str, Any]:
+    merged = deepcopy(target_json)
+
+    existing_description = existing_target_json.get("description")
+    if isinstance(existing_description, dict):
+        description = deepcopy(merged.get("description", {}))
+        if not isinstance(description, dict):
+            description = {}
+        for field_name in LLM_TARGET_DESCRIPTION_FIELDS:
+            if field_name in existing_description:
+                description[field_name] = deepcopy(existing_description[field_name])
+        merged["description"] = description
+
+    existing_provenance = existing_target_json.get("provenance")
+    if isinstance(existing_provenance, dict):
+        provenance = deepcopy(merged.get("provenance", {}))
+        if not isinstance(provenance, dict):
+            provenance = {}
+
+        current_methods = provenance.get("extraction_methods")
+        extraction_methods = list(current_methods) if isinstance(current_methods, list) else []
+        existing_methods = existing_provenance.get("extraction_methods")
+        if not isinstance(existing_methods, list):
+            existing_methods = []
+        for method in existing_methods:
+            if isinstance(method, str) and "llm" in method.lower() and method not in extraction_methods:
+                extraction_methods.append(method)
+        if extraction_methods:
+            provenance["extraction_methods"] = extraction_methods
+
+        for field_name in ("quality", "review"):
+            existing_field = existing_provenance.get(field_name)
+            if isinstance(existing_field, dict):
+                provenance[field_name] = deepcopy(existing_field)
+
+        merged["provenance"] = provenance
+
+    return merged
+
+
+def preserve_existing_llm_enrichment(
+    annotation: dict[str, Any],
+    existing_enrichments: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], str]:
+    existing, status = find_existing_llm_enrichment(annotation, existing_enrichments)
+    if existing is None:
+        return annotation, status
+
+    existing_annotation = existing.get("annotation")
+    if not isinstance(existing_annotation, dict):
+        return annotation, "none"
+
+    preserved = dict(annotation)
+    for field_name in LLM_ENRICHMENT_PRESERVED_FIELDS:
+        if field_name in existing_annotation:
+            preserved[field_name] = existing_annotation[field_name]
+    target_json = preserved.get("target_json")
+    existing_target_json = existing_annotation.get("target_json")
+    if isinstance(target_json, dict) and isinstance(existing_target_json, dict):
+        preserved["target_json"] = merge_existing_llm_target_json(target_json, existing_target_json)
+    return preserved, status
+
+
 def export_visual_asset_image(
     page: Any,
     asset_candidate: VisualAssetCandidate,
@@ -2712,11 +2881,14 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
 
     page_annotations: list[dict[str, Any]] = []
     asset_annotations: list[dict[str, Any]] = []
+    existing_enrichments = collect_existing_llm_enrichments()
     reset_multimodal_asset_exports()
     MULTIMODAL_PAIRS_DIR.mkdir(parents=True, exist_ok=True)
     pdf_count = 0
     page_count = 0
     asset_count = 0
+    preserved_llm_enrichment_count = 0
+    stale_llm_enrichment_count = 0
     asset_source_counts: dict[str, int] = {}
 
     for pdf_path in sorted(RAW_PDFS_DIR.rglob("*.pdf")):
@@ -2923,7 +3095,30 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
                         "review_required": review_required,
                         "image_export": image_export,
                     }
+                    asset_annotation, preserve_status = preserve_existing_llm_enrichment(
+                        asset_annotation,
+                        existing_enrichments,
+                    )
                     asset_annotation["target_json"] = build_asset_training_target(asset_annotation)
+                    if preserve_status == "preserved":
+                        existing_enrichment, _status = find_existing_llm_enrichment(
+                            asset_annotation,
+                            existing_enrichments,
+                        )
+                        existing_target_json = (
+                            existing_enrichment.get("annotation", {}).get("target_json")
+                            if isinstance(existing_enrichment, dict)
+                            else None
+                        )
+                        if isinstance(existing_target_json, dict):
+                            asset_annotation["target_json"] = merge_existing_llm_target_json(
+                                asset_annotation["target_json"],
+                                existing_target_json,
+                            )
+                    if preserve_status == "preserved":
+                        preserved_llm_enrichment_count += 1
+                    elif preserve_status != "none":
+                        stale_llm_enrichment_count += 1
                     write_json(asset_annotation_path, asset_annotation)
                     asset_annotations.append(asset_annotation)
                     page_asset_annotations.append(asset_annotation)
@@ -2995,6 +3190,8 @@ def render_pdf_multimodal_assets() -> tuple[list[dict[str, Any]], list[dict[str,
         "pdf_count": pdf_count,
         "page_count": page_count,
         "asset_count": asset_count,
+        "preserved_llm_enrichment_count": preserved_llm_enrichment_count,
+        "stale_llm_enrichment_count": stale_llm_enrichment_count,
         "asset_source_counts": asset_source_counts,
         "render_scale": PDF_RENDER_SCALE,
         "asset_target_long_edge_px": ASSET_TARGET_LONG_EDGE_PX,

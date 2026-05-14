@@ -1,5 +1,7 @@
+import shutil
 import sys
 import unittest
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +17,9 @@ from prepare_dataset import (
     build_asset_training_target,
     derive_asset_market_fields,
     extract_keyword_labels,
+    file_sha256,
     extract_pair_symbols,
+    preserve_existing_llm_enrichment,
     merge_page_market_fields,
     should_review_page_annotation,
 )
@@ -29,6 +33,223 @@ class PrepareDatasetTests(unittest.TestCase):
         self.assertTrue(image_path.as_posix().endswith(f"data/processed/multimodal/pairs/{expected_basename}.jpg"))
         self.assertTrue(json_path.as_posix().endswith(f"data/processed/multimodal/pairs/{expected_basename}.json"))
         self.assertEqual(image_path.stem, json_path.stem)
+
+    def test_preserve_existing_llm_enrichment_only_when_image_hash_matches(self) -> None:
+        temp_root = ROOT / ".tmp" / f"test_preserve_existing_llm_{uuid.uuid4().hex}"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        image_path = temp_root / "asset.png"
+        image_path.write_bytes(b"same-image")
+
+        current_annotation = {
+            "id": "asset-1",
+            "pair_type": "visual_asset",
+            "image_path": image_path.relative_to(ROOT).as_posix(),
+            "caption": "new caption",
+            "summary": "new summary",
+            "review_required": True,
+            "target_json": {
+                "description": {"short_caption": "new caption"},
+                "observed": {"visible_in_crop": {"clean_text": "new ocr"}},
+                "derived": {"symbols": ["NEW"]},
+                "provenance": {
+                    "extraction_methods": ["ocr"],
+                    "field_sources": {"primary_symbol": "ocr"},
+                    "quality": {
+                        "annotation_quality": "low",
+                        "page_type_confidence": 0.1,
+                    },
+                    "review": {
+                        "required": True,
+                        "reasons": ["auto_review_flag", "missing_primary_symbol"],
+                    },
+                },
+            },
+        }
+        old_annotation = {
+            **current_annotation,
+            "caption": "old llm caption",
+            "summary": "old llm summary",
+            "review_required": False,
+            "target_json": {
+                "description": {
+                    "short_caption": "old llm caption",
+                    "visual_summary": "old llm summary",
+                },
+                "observed": {"visible_in_crop": {"clean_text": "stale ocr"}},
+                "derived": {"symbols": ["OLD"]},
+                "provenance": {
+                    "extraction_methods": ["ocr", "chatgpt_browser_llm"],
+                    "field_sources": {
+                        "primary_symbol": "llm_enrichment",
+                        "venue": "ocr",
+                    },
+                    "quality": {
+                        "annotation_quality": "high",
+                        "page_type_confidence": 0.7,
+                    },
+                    "review": {
+                        "required": False,
+                        "reasons": [],
+                    },
+                },
+            },
+            "llm_enrichment": {"structured_response": {"confidence": "high"}},
+        }
+        existing = {
+            "asset-1": {
+                "annotation": old_annotation,
+                "image_sha256": file_sha256(image_path),
+            }
+        }
+
+        try:
+            preserved, status = preserve_existing_llm_enrichment(current_annotation, existing)
+
+            self.assertEqual(status, "preserved")
+            self.assertEqual(preserved["caption"], "old llm caption")
+            self.assertFalse(preserved["review_required"])
+            self.assertEqual(preserved["llm_enrichment"], old_annotation["llm_enrichment"])
+            self.assertEqual(preserved["target_json"]["description"]["short_caption"], "old llm caption")
+            self.assertEqual(preserved["target_json"]["description"]["visual_summary"], "old llm summary")
+            self.assertEqual(preserved["target_json"]["observed"]["visible_in_crop"]["clean_text"], "new ocr")
+            self.assertEqual(preserved["target_json"]["derived"]["symbols"], ["NEW"])
+            self.assertEqual(
+                preserved["target_json"]["provenance"]["field_sources"],
+                {"primary_symbol": "ocr"},
+            )
+            self.assertEqual(
+                preserved["target_json"]["provenance"]["extraction_methods"],
+                ["ocr", "chatgpt_browser_llm"],
+            )
+            self.assertEqual(
+                preserved["target_json"]["provenance"]["quality"],
+                {
+                    "annotation_quality": "high",
+                    "page_type_confidence": 0.7,
+                },
+            )
+            self.assertEqual(
+                preserved["target_json"]["provenance"]["review"],
+                {
+                    "required": False,
+                    "reasons": [],
+                },
+            )
+
+            image_path.write_bytes(b"changed-image")
+            unchanged, status = preserve_existing_llm_enrichment(current_annotation, existing)
+
+            self.assertEqual(status, "image_changed")
+            self.assertNotIn("llm_enrichment", unchanged)
+            self.assertEqual(unchanged["caption"], "new caption")
+            self.assertTrue(unchanged["review_required"])
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
+    def test_preserve_existing_llm_enrichment_uses_unique_hash_when_asset_id_shifts(self) -> None:
+        temp_root = ROOT / ".tmp" / f"test_preserve_existing_shifted_llm_{uuid.uuid4().hex}"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        image_path = temp_root / "asset.png"
+        image_path.write_bytes(b"same-image")
+
+        current_annotation = {
+            "id": "asset-2",
+            "pair_type": "visual_asset",
+            "image_path": image_path.relative_to(ROOT).as_posix(),
+            "caption": "new caption",
+            "review_required": True,
+            "target_json": {
+                "description": {"short_caption": "new caption"},
+                "provenance": {"extraction_methods": ["ocr"]},
+            },
+        }
+        shifted_old_annotation = {
+            **current_annotation,
+            "id": "asset-1",
+            "caption": "old shifted llm caption",
+            "review_required": False,
+            "target_json": {
+                "description": {
+                    "short_caption": "old shifted llm caption",
+                    "visual_summary": "old shifted summary",
+                },
+                "provenance": {"extraction_methods": ["ocr", "chatgpt_browser_llm"]},
+            },
+            "llm_enrichment": {"structured_response": {"confidence": "high"}},
+        }
+        old_annotation_with_colliding_current_id = {
+            **current_annotation,
+            "caption": "different old asset",
+            "llm_enrichment": {"structured_response": {"confidence": "low"}},
+        }
+        existing = {
+            "asset-1": {
+                "annotation": shifted_old_annotation,
+                "image_sha256": file_sha256(image_path),
+            },
+            "asset-2": {
+                "annotation": old_annotation_with_colliding_current_id,
+                "image_sha256": "different-image-hash",
+            },
+        }
+
+        try:
+            preserved, status = preserve_existing_llm_enrichment(current_annotation, existing)
+
+            self.assertEqual(status, "preserved")
+            self.assertEqual(preserved["caption"], "old shifted llm caption")
+            self.assertFalse(preserved["review_required"])
+            self.assertEqual(preserved["llm_enrichment"], shifted_old_annotation["llm_enrichment"])
+            self.assertEqual(
+                preserved["target_json"]["description"]["visual_summary"],
+                "old shifted summary",
+            )
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
+    def test_preserve_existing_llm_enrichment_skips_ambiguous_duplicate_hash(self) -> None:
+        temp_root = ROOT / ".tmp" / f"test_preserve_existing_duplicate_llm_{uuid.uuid4().hex}"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        image_path = temp_root / "asset.png"
+        image_path.write_bytes(b"same-image")
+
+        current_annotation = {
+            "id": "asset-3",
+            "pair_type": "visual_asset",
+            "image_path": image_path.relative_to(ROOT).as_posix(),
+            "caption": "new caption",
+            "review_required": True,
+        }
+        existing = {
+            "asset-1": {
+                "annotation": {
+                    **current_annotation,
+                    "id": "asset-1",
+                    "caption": "first old caption",
+                    "llm_enrichment": {"structured_response": {"confidence": "high"}},
+                },
+                "image_sha256": file_sha256(image_path),
+            },
+            "asset-2": {
+                "annotation": {
+                    **current_annotation,
+                    "id": "asset-2",
+                    "caption": "second old caption",
+                    "llm_enrichment": {"structured_response": {"confidence": "medium"}},
+                },
+                "image_sha256": file_sha256(image_path),
+            },
+        }
+
+        try:
+            unchanged, status = preserve_existing_llm_enrichment(current_annotation, existing)
+
+            self.assertEqual(status, "duplicate_image_hash")
+            self.assertNotIn("llm_enrichment", unchanged)
+            self.assertEqual(unchanged["caption"], "new caption")
+            self.assertTrue(unchanged["review_required"])
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
 
     def test_asset_render_scale_prefers_higher_quality_but_caps_maximum(self) -> None:
         self.assertEqual(asset_render_scale((0.0, 0.0, 500.0, 250.0)), 4.0)

@@ -142,7 +142,7 @@ class EasyWorkflowTests(unittest.TestCase):
             allow_review_required=False,
         )
 
-    def test_run_everything_aborts_export_after_incomplete_enrichment(self) -> None:
+    def test_run_everything_exports_completed_pairs_after_incomplete_enrichment(self) -> None:
         with (
             mock.patch.object(workflow, "build_doctor_results", return_value=[]),
             mock.patch.object(workflow, "print_check"),
@@ -152,9 +152,46 @@ class EasyWorkflowTests(unittest.TestCase):
             mock.patch.object(workflow, "collect_enrichment_target_paths", return_value=[Path("a.json"), Path("b.json")]),
             mock.patch.object(workflow, "run_enrichment"),
             mock.patch.object(workflow, "count_missing_llm_enrichment", return_value=1),
+            mock.patch.object(workflow, "count_exportable_llm_assets", return_value=1),
+            mock.patch.object(
+                workflow,
+                "run_export_training_pairs",
+                return_value={"exported_pairs": 1, "skipped": {"missing_llm_enrichment": 1}},
+            ) as export_mock,
+        ):
+            workflow.run_everything(
+                with_chatgpt=True,
+                chatgpt_limit=None,
+                chatgpt_language="de",
+                chatgpt_max_assets_per_chat=10,
+                chatgpt_dry_run=False,
+                manual_login=True,
+                config_path=None,
+                reprocess_existing=False,
+                keep_browser_open=None,
+                with_split=False,
+            )
+
+        export_mock.assert_called_once_with(
+            min_quality="medium",
+            require_llm=True,
+            allow_review_required=False,
+        )
+
+    def test_run_everything_aborts_incomplete_enrichment_when_no_llm_assets_are_exportable(self) -> None:
+        with (
+            mock.patch.object(workflow, "build_doctor_results", return_value=[]),
+            mock.patch.object(workflow, "print_check"),
+            mock.patch.object(workflow, "print_next_steps"),
+            mock.patch.object(workflow, "run_prepare_dataset"),
+            mock.patch.object(workflow, "setup_chatgpt_config"),
+            mock.patch.object(workflow, "collect_enrichment_target_paths", return_value=[Path("a.json"), Path("b.json")]),
+            mock.patch.object(workflow, "run_enrichment"),
+            mock.patch.object(workflow, "count_missing_llm_enrichment", return_value=2),
+            mock.patch.object(workflow, "count_exportable_llm_assets", return_value=0),
             mock.patch.object(workflow, "run_export_training_pairs") as export_mock,
         ):
-            with self.assertRaisesRegex(RuntimeError, "ChatGPT-Enrichment blieb unvollstaendig"):
+            with self.assertRaisesRegex(RuntimeError, "keine exportierbaren LLM-Assets"):
                 workflow.run_everything(
                     with_chatgpt=True,
                     chatgpt_limit=None,
