@@ -13,6 +13,7 @@ from chatgpt_automation.config import (
     DEFAULT_USER_DATA_DIR,
     _path_is_within,
     _prefer_safe_runtime_path,
+    _resolve_candidate,
 )
 
 
@@ -28,6 +29,11 @@ class ChatGPTConfigTests(unittest.TestCase):
     def test_prefer_safe_runtime_path_keeps_external_path(self) -> None:
         candidate = Path.home() / "safe-chatgpt-profile"
         self.assertEqual(_prefer_safe_runtime_path(candidate, DEFAULT_COOKIES_FILE), candidate)
+
+    def test_resolve_candidate_expands_home_directory(self) -> None:
+        resolved = _resolve_candidate(ROOT, "~/safe-chatgpt-profile")
+
+        self.assertEqual(resolved, Path.home() / "safe-chatgpt-profile")
 
 
 if __name__ == "__main__":

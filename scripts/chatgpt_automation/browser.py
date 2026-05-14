@@ -56,14 +56,15 @@ def require_selenium() -> None:
 
 def discover_browser_executable(browser: str) -> Path | None:
     candidates: list[Path] = []
-    if browser == "edge":
+    system = platform.system().lower()
+    if browser == "edge" and system == "windows":
         candidates.extend(
             [
                 Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
                 Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
             ]
         )
-    else:
+    elif browser != "edge" and system == "windows":
         candidates.extend(
             [
                 Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
@@ -71,14 +72,37 @@ def discover_browser_executable(browser: str) -> Path | None:
                 Path(r"C:\Program Files\Chromium\Application\chrome.exe"),
             ]
         )
+    elif browser == "edge" and system == "darwin":
+        candidates.append(Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"))
+    elif browser != "edge" and system == "darwin":
+        candidates.extend(
+            [
+                Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+                Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            ]
+        )
 
     for candidate in candidates:
         if candidate.exists():
             return candidate
 
-    path_command = "msedge.exe" if browser == "edge" else "chrome.exe"
-    resolved = shutil.which(path_command)
-    return Path(resolved) if resolved else None
+    path_commands = (
+        ("msedge.exe", "msedge", "microsoft-edge", "microsoft-edge-stable")
+        if browser == "edge"
+        else (
+            "chrome.exe",
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+            "chrome",
+        )
+    )
+    for path_command in path_commands:
+        resolved = shutil.which(path_command)
+        if resolved:
+            return Path(resolved)
+    return None
 
 
 def _build_common_options(options: Any, config: ChatGPTAutomationConfig, use_profile: bool) -> Any:

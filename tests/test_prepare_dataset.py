@@ -3,6 +3,7 @@ import sys
 import unittest
 import uuid
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "scripts"
@@ -21,11 +22,20 @@ from prepare_dataset import (
     extract_pair_symbols,
     preserve_existing_llm_enrichment,
     merge_page_market_fields,
+    resolve_tesseract_cmd,
     should_review_page_annotation,
 )
 
 
 class PrepareDatasetTests(unittest.TestCase):
+    def test_resolve_tesseract_cmd_uses_tesseract_from_path(self) -> None:
+        with (
+            mock.patch.dict("os.environ", {"TESSERACT_CMD": ""}, clear=False),
+            mock.patch("prepare_dataset.Path.exists", return_value=False),
+            mock.patch("prepare_dataset.shutil.which", return_value="/usr/bin/tesseract"),
+        ):
+            self.assertEqual(resolve_tesseract_cmd(), "/usr/bin/tesseract")
+
     def test_build_asset_pair_paths_uses_single_pairs_directory_and_shared_basename(self) -> None:
         image_path, json_path = build_asset_pair_paths("nested/03.10.pdf", page_number=1, asset_index=2, image_extension="jpeg")
         expected_basename = f"nested__03-10__p0001__a02__{build_asset_pair_id('nested/03.10.pdf', 1, 2)}"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "scripts"
@@ -64,6 +65,26 @@ class ChatGPTBrowserTests(unittest.TestCase):
             browser.build_manual_login_browser_command(config)
 
         self.assertIn("user_data_dir", str(context.exception))
+
+    def test_discover_browser_executable_finds_linux_chrome_from_path(self) -> None:
+        def fake_which(command: str) -> str | None:
+            return "/usr/bin/google-chrome" if command == "google-chrome" else None
+
+        with (
+            mock.patch.object(browser.platform, "system", return_value="Linux"),
+            mock.patch.object(browser.shutil, "which", side_effect=fake_which),
+        ):
+            self.assertEqual(browser.discover_browser_executable("chrome"), Path("/usr/bin/google-chrome"))
+
+    def test_discover_browser_executable_finds_linux_edge_from_path(self) -> None:
+        def fake_which(command: str) -> str | None:
+            return "/usr/bin/microsoft-edge" if command == "microsoft-edge" else None
+
+        with (
+            mock.patch.object(browser.platform, "system", return_value="Linux"),
+            mock.patch.object(browser.shutil, "which", side_effect=fake_which),
+        ):
+            self.assertEqual(browser.discover_browser_executable("edge"), Path("/usr/bin/microsoft-edge"))
 
 
 if __name__ == "__main__":

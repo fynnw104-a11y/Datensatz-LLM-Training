@@ -19,7 +19,7 @@ def _resolve_candidate(base_dir: Path, raw_value: str | None, fallback: Path | N
     if not raw_value:
         return fallback
 
-    raw_path = Path(os.path.expandvars(raw_value))
+    raw_path = Path(os.path.expanduser(os.path.expandvars(raw_value)))
     candidates: list[Path] = []
     if raw_path.is_absolute():
         candidates.append(raw_path)

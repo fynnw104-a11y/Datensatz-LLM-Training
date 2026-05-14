@@ -6,7 +6,9 @@ Wenn du einfach nur willst, dass es ohne Nachdenken laeuft:
 
 1. `pip install -r requirements.txt`
 2. Lege deine PDFs nach `data/raw/pdfs/`
-3. Starte unter Windows `START_HERE.bat`
+3. Starte den Launcher:
+   - Windows: `START_HERE.bat`
+   - Linux/macOS: `sh START_HERE.sh`
 
 Der Launcher zeigt ein einfaches Menue fuer:
 
@@ -66,15 +68,25 @@ Unterstuetzte Dateitypen:
 
 ## Installation
 
+Windows:
+
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
+Linux/macOS:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ## 1. Rohdaten extrahieren
 
-```powershell
+```bash
 python scripts/prepare_dataset.py
 ```
 
@@ -111,9 +123,12 @@ Im aktuellen Worktree wird Tesseract automatisch an diesen Orten erkannt:
 
 - `C:\Program Files\Tesseract-OCR\tesseract.exe`
 - `C:\Program Files (x86)\Tesseract-OCR\tesseract.exe`
+- `tesseract` im `PATH` auf Linux/macOS
 - `.\.tessdata\` als bevorzugter Projektordner fuer eigene Sprachmodelle
 
 Optional relevante Umgebungsvariablen:
+
+Windows:
 
 ```powershell
 $env:PDF_RENDER_SCALE="2.0"
@@ -124,6 +139,19 @@ $env:TESSERACT_LANG="deu+eng"
 $env:TESSERACT_CMD="C:\Program Files\Tesseract-OCR\tesseract.exe"
 $env:ASSET_MIN_AREA_RATIO="0.02"
 $env:ASSET_CONTEXT_MARGIN="42"
+```
+
+Linux/macOS:
+
+```bash
+export PDF_RENDER_SCALE="2.0"
+export ASSET_TARGET_LONG_EDGE_PX="2200"
+export ASSET_MAX_RENDER_SCALE="4.0"
+export ENABLE_OCR="1"
+export TESSERACT_LANG="deu+eng"
+export TESSERACT_CMD="/usr/bin/tesseract"
+export ASSET_MIN_AREA_RATIO="0.02"
+export ASSET_CONTEXT_MARGIN="42"
 ```
 
 Die Seiten-Annotationen folgen `schemas/pdf_page_annotation.schema.json`.
@@ -151,7 +179,7 @@ Die grossen Asset-JSONs unter `data/processed/multimodal/pairs/*.json` bleiben d
 
 Fuer das eigentliche multimodale Training gibt es einen separaten, schlanken Export:
 
-```powershell
+```bash
 python scripts/export_multimodal_training_pairs.py
 ```
 
@@ -192,7 +220,7 @@ Der Browser-Layer nutzt ein konfiguriertes Browser-Profil oder eine konfiguriert
 
 Beispiel: bestehende Asset-JSONs mit ChatGPT verbessern
 
-```powershell
+```bash
 python scripts/enrich_multimodal_descriptions.py --limit 10 --language en
 ```
 
@@ -229,7 +257,7 @@ Nutzliche Optionen:
 
 Beispiel: generischer ChatGPT-Batch fuer Bilder oder reine Textprompts
 
-```powershell
+```bash
 python scripts/run_chatgpt_batch.py --input jobs.jsonl --output results.jsonl
 ```
 
@@ -249,11 +277,11 @@ Hinweise zum Browser-Setup:
 
 - die Skripte lesen `ChatGPT/config.json`
 - als Vorlage kannst du `ChatGPT/config.example.json` verwenden
-- wenn du es maximal einfach willst, starte `START_HERE.bat` und waehle `ChatGPT vorbereiten`
+- wenn du es maximal einfach willst, starte `START_HERE.bat` auf Windows oder `sh START_HERE.sh` auf Linux/macOS und waehle `ChatGPT vorbereiten`
 - Browser-Profil und Cookies landen standardmaessig im ignorierten Ordner `.runtime/chatgpt/`
 - falls `chatgpt.com` im Selenium-Fenster eine Bot- oder Security-Challenge zeigt, zuerst den separaten manuellen Profil-Login abschliessen; wenn die Challenge danach weiter erscheint, ist die Browser-Automation auf dieser Session aktuell blockiert
 - `user_data_dir`, `cookies_file`, `driver_path` und `browser_executable` koennen dort oder per Umgebungsvariablen gesetzt werden
-- unter Windows werden Chrome und Edge an typischen Standardpfaden gesucht
+- unter Windows werden Chrome und Edge an typischen Standardpfaden gesucht; auf Linux/macOS werden uebliche Binary-Namen wie `google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge` und `microsoft-edge-stable` im `PATH` gesucht
 - falls kein passender WebDriver lokal verfuegbar ist, musst du den Browser-Driver auf deinem Rechner lauffaehig machen; `selenium` und `selenium-stealth` kommen ueber `pip install -r requirements.txt`
 
 ## 2. Trainingsbeispiele kuratieren
@@ -268,7 +296,7 @@ Das erwartete Format ist in `schemas/training_example.schema.json` beschrieben.
 
 ## 3. Train/Eval-Split bauen
 
-```powershell
+```bash
 python scripts/build_training_split.py
 ```
 

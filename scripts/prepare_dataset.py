@@ -71,6 +71,13 @@ WINDOWS_TESSERACT_CANDIDATES = [
     Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
     Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
 ]
+TESSDATA_CANDIDATES = [
+    Path("/usr/share/tesseract-ocr/5/tessdata"),
+    Path("/usr/share/tesseract-ocr/4.00/tessdata"),
+    Path("/usr/share/tessdata"),
+    Path("/opt/homebrew/share/tessdata"),
+    Path("/usr/local/share/tessdata"),
+]
 
 FOREX_CODES = {
     "USD",
@@ -733,7 +740,9 @@ def resolve_tesseract_cmd() -> str | None:
     for candidate in WINDOWS_TESSERACT_CANDIDATES:
         if candidate.exists():
             return str(candidate)
-    return None
+
+    resolved = shutil.which("tesseract")
+    return resolved if resolved else None
 
 
 def resolve_tessdata_prefix() -> str | None:
@@ -743,6 +752,10 @@ def resolve_tessdata_prefix() -> str | None:
 
     if PROJECT_TESSDATA_DIR.exists():
         return str(PROJECT_TESSDATA_DIR)
+
+    for candidate in TESSDATA_CANDIDATES:
+        if candidate.exists():
+            return str(candidate)
 
     resolved_cmd = resolve_tesseract_cmd()
     if resolved_cmd:

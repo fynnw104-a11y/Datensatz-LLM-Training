@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -69,6 +70,10 @@ def repo_relative(path: Path) -> str:
         return path.resolve().relative_to(ROOT.resolve()).as_posix()
     except ValueError:
         return str(path.resolve())
+
+
+def launcher_name() -> str:
+    return "START_HERE.bat" if platform.system().lower() == "windows" else "./START_HERE.sh"
 
 
 def load_json(path: Path) -> dict[str, object]:
@@ -379,7 +384,7 @@ def print_next_steps(results: Iterable[CheckResult]) -> None:
     if any(result.label == "PyMuPDF" and result.status == "error" for result in errors):
         print("- Installiere die Python-Abhaengigkeiten mit `pip install -r requirements.txt`.")
     if any(result.label == "ChatGPT-Konfig" and result.status == "warn" for result in warnings):
-        print("- Starte `START_HERE.bat` und waehle `ChatGPT vorbereiten`.")
+        print(f"- Starte `{launcher_name()}` und waehle `ChatGPT vorbereiten`.")
     if any(result.label == "Selenium" and result.status == "warn" for result in warnings):
         print("- Fuer ChatGPT-Enrichment werden Selenium, selenium-stealth und ein lokaler Browser benoetigt.")
 
