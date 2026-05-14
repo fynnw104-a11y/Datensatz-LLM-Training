@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import sys
+import shutil
 import unittest
+import uuid
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -85,6 +88,59 @@ class ChatGPTBrowserTests(unittest.TestCase):
             mock.patch.object(browser.shutil, "which", side_effect=fake_which),
         ):
             self.assertEqual(browser.discover_browser_executable("edge"), Path("/usr/bin/microsoft-edge"))
+
+    def test_normalize_cookie_payload_accepts_wrapped_or_plain_cookie_lists(self) -> None:
+        payload = {
+            "cookies": [
+                {
+                    "name": "session",
+                    "value": "abc",
+                    "domain": ".chatgpt.com",
+                    "sameSite": "Lax",
+                    "expirationDate": 1912345678,
+                    "secure": True,
+                    "http_only": True,
+                }
+            ]
+        }
+
+        wrapped = browser.normalize_cookie_payload(payload)
+        plain = browser.normalize_cookie_payload(payload["cookies"])
+
+        self.assertEqual(wrapped, plain)
+        self.assertEqual(wrapped[0]["name"], "session")
+        self.assertEqual(wrapped[0]["path"], "/")
+        self.assertEqual(wrapped[0]["expiry"], 1912345678)
+        self.assertTrue(wrapped[0]["secure"])
+        self.assertTrue(wrapped[0]["httpOnly"])
+
+    def test_set_cookie_payload_merges_by_domain_path_and_name(self) -> None:
+        temp_root = ROOT / ".tmp" / f"test_set_cookie_payload_{uuid.uuid4().hex}"
+        cookie_file = temp_root / "cookies.json"
+        try:
+            temp_root.mkdir(parents=True, exist_ok=True)
+            cookie_file.write_text(
+                json.dumps(
+                    {
+                        "cookies": [
+                            {"name": "session", "value": "old", "domain": ".chatgpt.com", "path": "/"},
+                            {"name": "other", "value": "kept", "domain": ".chatgpt.com", "path": "/"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            written = browser.set_cookie_payload(
+                cookie_file,
+                [{"name": "session", "value": "new", "domain": ".chatgpt.com", "path": "/"}],
+            )
+
+            self.assertEqual(written, 2)
+            cookies_by_name = {cookie["name"]: cookie["value"] for cookie in browser.load_cookie_payload(cookie_file)}
+            self.assertEqual(cookies_by_name, {"session": "new", "other": "kept"})
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

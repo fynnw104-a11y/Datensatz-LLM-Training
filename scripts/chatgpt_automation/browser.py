@@ -232,11 +232,8 @@ def build_driver_with_fallback(config: ChatGPTAutomationConfig) -> Any:
         raise RuntimeError("Could not start a Selenium browser session.\n" + "\n".join(errors)) from exc
 
 
-def load_cookie_payload(cookie_file: Path | None) -> list[dict[str, Any]]:
-    if cookie_file is None or not cookie_file.exists():
-        return []
-    payload = json.loads(cookie_file.read_text(encoding="utf-8"))
-    cookies = payload.get("cookies", payload)
+def normalize_cookie_payload(payload: Any) -> list[dict[str, Any]]:
+    cookies = payload.get("cookies", payload) if isinstance(payload, dict) else payload
     if not isinstance(cookies, list):
         return []
     normalized: list[dict[str, Any]] = []
@@ -251,18 +248,55 @@ def load_cookie_payload(cookie_file: Path | None) -> list[dict[str, Any]]:
         domain = item.get("domain")
         if isinstance(domain, str) and domain.strip():
             cookie["domain"] = domain
-        expiry = item.get("expiry")
+        expiry = item.get("expiry", item.get("expirationDate"))
         if isinstance(expiry, (int, float)):
             cookie["expiry"] = int(expiry)
-        same_site = item.get("sameSite")
+        same_site = item.get("sameSite", item.get("same_site"))
         if isinstance(same_site, str) and same_site.strip():
             cookie["sameSite"] = same_site
         secure = item.get("secure")
         if isinstance(secure, bool):
             cookie["secure"] = secure
-        http_only = item.get("httpOnly")
+        http_only = item.get("httpOnly", item.get("http_only"))
         if isinstance(http_only, bool):
             cookie["httpOnly"] = http_only
         if cookie.get("name") and cookie.get("value") is not None:
             normalized.append(cookie)
     return normalized
+
+
+def load_cookie_payload(cookie_file: Path | None) -> list[dict[str, Any]]:
+    if cookie_file is None or not cookie_file.exists():
+        return []
+    payload = json.loads(cookie_file.read_text(encoding="utf-8"))
+    return normalize_cookie_payload(payload)
+
+
+def _cookie_merge_key(cookie: dict[str, Any]) -> tuple[str, str, str]:
+    domain = str(cookie.get("domain", "") or "").lstrip(".").lower()
+    path = str(cookie.get("path", "/") or "/")
+    name = str(cookie.get("name", "") or "")
+    return domain, path, name
+
+
+def write_cookie_payload(cookie_file: Path, cookies: list[dict[str, Any]]) -> int:
+    normalized = normalize_cookie_payload(cookies)
+    cookie_file.parent.mkdir(parents=True, exist_ok=True)
+    cookie_file.write_text(json.dumps({"cookies": normalized}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return len(normalized)
+
+
+def set_cookie_payload(cookie_file: Path | None, cookies: list[dict[str, Any]], replace: bool = False) -> int:
+    if cookie_file is None:
+        return 0
+
+    new_cookies = normalize_cookie_payload(cookies)
+    if replace:
+        return write_cookie_payload(cookie_file, new_cookies)
+
+    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for cookie in load_cookie_payload(cookie_file):
+        merged[_cookie_merge_key(cookie)] = cookie
+    for cookie in new_cookies:
+        merged[_cookie_merge_key(cookie)] = cookie
+    return write_cookie_payload(cookie_file, list(merged.values()))

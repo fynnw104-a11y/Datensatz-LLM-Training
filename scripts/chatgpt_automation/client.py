@@ -9,7 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .browser import build_driver_with_fallback, launch_browser_for_manual_login, load_cookie_payload, require_selenium
+from .browser import (
+    build_driver_with_fallback,
+    launch_browser_for_manual_login,
+    load_cookie_payload,
+    normalize_cookie_payload,
+    require_selenium,
+    set_cookie_payload,
+)
 from .config import ChatGPTAutomationConfig
 from .selectors import SelectorCatalog, SelectorEntry
 
@@ -311,6 +318,31 @@ window.chrome = window.chrome || { runtime: {} };
             except Exception:
                 continue
         self.driver.get(self.config.base_url)
+        return added
+
+    def set_cookies(
+        self,
+        cookies: list[dict[str, Any]],
+        persist: bool = True,
+        apply_to_browser: bool = True,
+        replace: bool = False,
+    ) -> int:
+        normalized = normalize_cookie_payload(cookies)
+        if persist:
+            set_cookie_payload(self.config.cookies_file, normalized, replace=replace)
+        if not apply_to_browser or not normalized:
+            return len(normalized)
+
+        self.driver.get(self.config.base_url)
+        added = 0
+        for cookie in normalized:
+            try:
+                self.driver.add_cookie(cookie)
+                added += 1
+            except Exception:
+                continue
+        if added:
+            self.driver.get(self.config.base_url)
         return added
 
     def is_logged_in(self) -> bool:

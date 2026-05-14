@@ -17,7 +17,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chatgpt_automation.browser import discover_browser_executable, require_selenium
+from chatgpt_automation.browser import discover_browser_executable, normalize_cookie_payload, require_selenium, set_cookie_payload
 from chatgpt_automation.config import DEFAULT_CONFIG_PATH, load_config
 from export_multimodal_training_pairs import should_export_annotation
 from prepare_dataset import RAW_PDFS_DIR, detect_ocr_runtime, import_pymupdf
@@ -78,6 +78,37 @@ def launcher_name() -> str:
 
 def load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_cookie_source(path: Path) -> list[dict[str, object]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return normalize_cookie_payload(payload)
+
+
+def write_chatgpt_cookies(cookies: list[dict[str, object]], replace: bool = False, config_path: str | Path | None = None) -> int:
+    config = load_config(config_path)
+    if config.cookies_file is None:
+        raise RuntimeError("In der ChatGPT-Konfig ist keine cookies_file gesetzt.")
+    return set_cookie_payload(config.cookies_file, cookies, replace=replace)
+
+
+def build_cookie_from_args(args: argparse.Namespace) -> dict[str, object]:
+    cookie: dict[str, object] = {
+        "name": args.name,
+        "value": args.value,
+        "path": args.path,
+    }
+    if args.domain:
+        cookie["domain"] = args.domain
+    if args.expiry is not None:
+        cookie["expiry"] = int(args.expiry)
+    if args.same_site:
+        cookie["sameSite"] = args.same_site
+    if args.secure is not None:
+        cookie["secure"] = bool(args.secure)
+    if args.http_only is not None:
+        cookie["httpOnly"] = bool(args.http_only)
+    return cookie
 
 
 def collect_enrichment_target_paths(skip_existing_llm: bool, limit: int | None) -> list[Path]:
@@ -734,6 +765,23 @@ def parse_args() -> argparse.Namespace:
     setup_parser = subparsers.add_parser("setup-chatgpt", help="ChatGPT-Konfig aus der Vorlage anlegen.")
     setup_parser.add_argument("--reset-config", action="store_true", help="Vorhandene ChatGPT-Konfig aus der Vorlage neu schreiben.")
 
+    set_cookie_parser = subparsers.add_parser("set-cookie", help="Ein einzelnes ChatGPT-Cookie in die Cookie-Datei schreiben.")
+    set_cookie_parser.add_argument("--name", required=True, help="Cookie-Name.")
+    set_cookie_parser.add_argument("--value", required=True, help="Cookie-Wert.")
+    set_cookie_parser.add_argument("--domain", default=".chatgpt.com", help="Cookie-Domain. Standard: .chatgpt.com")
+    set_cookie_parser.add_argument("--path", default="/", help="Cookie-Pfad. Standard: /")
+    set_cookie_parser.add_argument("--expiry", type=int, default=None, help="Optionaler Unix-Timestamp fuer den Ablaufzeitpunkt.")
+    set_cookie_parser.add_argument("--same-site", choices=["Strict", "Lax", "None"], default=None, help="Optionaler SameSite-Wert.")
+    set_cookie_parser.add_argument("--secure", action=argparse.BooleanOptionalAction, default=True, help="Secure-Flag setzen.")
+    set_cookie_parser.add_argument("--http-only", action=argparse.BooleanOptionalAction, default=None, help="HttpOnly-Flag setzen.")
+    set_cookie_parser.add_argument("--replace", action="store_true", help="Bestehende Cookie-Datei ersetzen statt Cookies zusammenzufuehren.")
+    set_cookie_parser.add_argument("--config", default=None, help="Optionaler Pfad zu ChatGPT/config.json.")
+
+    import_cookies_parser = subparsers.add_parser("import-cookies", help="ChatGPT-Cookies aus einer JSON-Datei importieren.")
+    import_cookies_parser.add_argument("--source", required=True, help="JSON-Datei mit {'cookies': [...]} oder direkter Cookie-Liste.")
+    import_cookies_parser.add_argument("--replace", action="store_true", help="Bestehende Cookie-Datei ersetzen statt Cookies zusammenzufuehren.")
+    import_cookies_parser.add_argument("--config", default=None, help="Optionaler Pfad zu ChatGPT/config.json.")
+
     subparsers.add_parser("prepare", help="Dataset aus den Rohdaten bauen.")
 
     enrich_parser = subparsers.add_parser("enrich", help="Asset-Beschreibungen mit ChatGPT anreichern.")
@@ -839,6 +887,20 @@ def main() -> None:
 
     if args.command == "setup-chatgpt":
         setup_chatgpt_config(force=bool(args.reset_config))
+        return
+
+    if args.command == "set-cookie":
+        cookie = build_cookie_from_args(args)
+        written = write_chatgpt_cookies([cookie], replace=bool(args.replace), config_path=args.config)
+        print(f"{written} Cookie(s) in die ChatGPT-Cookie-Datei geschrieben.")
+        return
+
+    if args.command == "import-cookies":
+        cookies = load_cookie_source(Path(args.source).resolve())
+        if not cookies:
+            raise RuntimeError(f"Keine gueltigen Cookies in {args.source} gefunden.")
+        written = write_chatgpt_cookies(cookies, replace=bool(args.replace), config_path=args.config)
+        print(f"{written} Cookie(s) in die ChatGPT-Cookie-Datei geschrieben.")
         return
 
     if args.command == "prepare":

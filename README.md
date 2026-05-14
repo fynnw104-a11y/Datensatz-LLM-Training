@@ -284,6 +284,52 @@ Hinweise zum Browser-Setup:
 - unter Windows werden Chrome und Edge an typischen Standardpfaden gesucht; auf Linux/macOS werden uebliche Binary-Namen wie `google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge` und `microsoft-edge-stable` im `PATH` gesucht
 - falls kein passender WebDriver lokal verfuegbar ist, musst du den Browser-Driver auf deinem Rechner lauffaehig machen; `selenium` und `selenium-stealth` kommen ueber `pip install -r requirements.txt`
 
+### Cookies manuell setzen
+
+Die Automation nutzt die Cookie-Datei aus `ChatGPT/config.json`. Standardmaessig ist das:
+
+```text
+.runtime/chatgpt/cookies/ChatGPT.json
+```
+
+Ein einzelnes Cookie kannst du so setzen:
+
+```bash
+python scripts/easy_dataset_workflow.py set-cookie --name NAME --value WERT
+```
+
+Standard-Domain ist `.chatgpt.com`, Standard-Pfad ist `/`, und neue Cookies werden mit vorhandenen Cookies zusammengefuehrt. Wenn du ein Cookie mit expliziter Domain, Ablaufzeit und Flags setzen willst:
+
+```bash
+python scripts/easy_dataset_workflow.py set-cookie --name NAME --value WERT --domain .chatgpt.com --path / --expiry 1912345678 --same-site Lax --secure
+```
+
+Einen Cookie-Export kannst du so importieren:
+
+```bash
+python scripts/easy_dataset_workflow.py import-cookies --source cookies.json
+```
+
+Unterstuetzte Import-Formate:
+
+```json
+{"cookies":[{"name":"NAME","value":"WERT","domain":".chatgpt.com","path":"/"}]}
+```
+
+oder direkt als Liste:
+
+```json
+[{"name":"NAME","value":"WERT","domain":".chatgpt.com","path":"/"}]
+```
+
+Mit `--replace` wird die bestehende Cookie-Datei ersetzt statt gemerged:
+
+```bash
+python scripts/easy_dataset_workflow.py import-cookies --source cookies.json --replace
+```
+
+Unterstuetzt werden Selenium-Felder wie `expiry`, `sameSite`, `httpOnly` sowie gaengige Export-Aliase wie `expirationDate`, `same_site` und `http_only`.
+
 ## 2. Trainingsbeispiele kuratieren
 
 Die Datei `trade_candidates.jsonl` ist absichtlich eine Review-Queue, kein blindes Final-Trainingsset.

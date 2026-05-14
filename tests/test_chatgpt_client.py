@@ -32,6 +32,7 @@ class ChatGPTClientTests(unittest.TestCase):
         client = ChatGPTClient.__new__(ChatGPTClient)
         client.config = SimpleNamespace(
             base_url="https://chatgpt.com/",
+            cookies_file=None,
             response_timeout_seconds=10.0,
             response_idle_seconds=0.0,
             page_load_timeout=5.0,
@@ -67,6 +68,23 @@ class ChatGPTClientTests(unittest.TestCase):
         client._rebuild_driver.assert_called_once_with()
         client.save_cookies.assert_called_once_with()
         self.assertIs(client.driver, rebuilt_driver)
+
+    def test_set_cookies_can_apply_new_cookies_to_current_browser(self) -> None:
+        client = self._build_client()
+        client.driver.add_cookie = mock.Mock()
+
+        added = ChatGPTClient.set_cookies(
+            client,
+            [{"name": "session", "value": "abc", "domain": ".chatgpt.com"}],
+            persist=False,
+            apply_to_browser=True,
+        )
+
+        self.assertEqual(added, 1)
+        self.assertEqual(client.driver.visited_urls, ["https://chatgpt.com/", "https://chatgpt.com/"])
+        client.driver.add_cookie.assert_called_once_with(
+            {"name": "session", "value": "abc", "path": "/", "domain": ".chatgpt.com"}
+        )
 
     def test_run_prompt_restores_last_conversation_when_reusing_chat(self) -> None:
         client = self._build_client()
