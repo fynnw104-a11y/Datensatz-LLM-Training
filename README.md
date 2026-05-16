@@ -292,6 +292,14 @@ Die Automation nutzt die Cookie-Datei aus `ChatGPT/config.json`. Standardmaessig
 .runtime/chatgpt/cookies/ChatGPT.json
 ```
 
+Bevor du das Enrichment startest, kannst du den Projektprofil-Login separat vorbereiten und pruefen:
+
+```bash
+python scripts/easy_dataset_workflow.py bootstrap-chatgpt-login
+```
+
+Der Befehl oeffnet ein normales Browserfenster mit dem Projektprofil. Logge dich dort komplett ein, warte bis die normale ChatGPT-Eingabe sichtbar ist, und schliesse dann das Fenster. Danach prueft das Skript, ob im Profil ein erkennbares Session-Cookie liegt.
+
 Ein einzelnes Cookie kannst du so setzen:
 
 ```bash

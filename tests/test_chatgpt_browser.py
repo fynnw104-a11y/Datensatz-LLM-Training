@@ -54,7 +54,9 @@ class ChatGPTBrowserTests(unittest.TestCase):
 
         self.assertEqual(command[0], r"C:\Program Files\Google\Chrome\Application\chrome.exe")
         self.assertIn(f"--user-data-dir={profile_dir.resolve()}", command)
+        self.assertIn("--profile-directory=Default", command)
         self.assertIn("--new-window", command)
+        self.assertIn("--disable-background-mode", command)
         self.assertNotIn("--disable-blink-features=AutomationControlled", command)
         self.assertEqual(command[-1], "https://chatgpt.com/auth/login")
 
@@ -88,6 +90,20 @@ class ChatGPTBrowserTests(unittest.TestCase):
             mock.patch.object(browser.shutil, "which", side_effect=fake_which),
         ):
             self.assertEqual(browser.discover_browser_executable("edge"), Path("/usr/bin/microsoft-edge"))
+
+    def test_build_driver_with_fallback_does_not_hide_configured_profile_failure(self) -> None:
+        profile_dir = ROOT / ".tmp" / f"test_chatgpt_profile_failure_{uuid.uuid4().hex}"
+        try:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            config = load_config().with_overrides(user_data_dir=profile_dir)
+
+            with mock.patch.object(browser, "create_webdriver", side_effect=browser.WebDriverException("locked")):
+                with self.assertRaises(RuntimeError) as context:
+                    browser.build_driver_with_fallback(config)
+
+            self.assertIn("will not fall back to a clean logged-out profile", str(context.exception))
+        finally:
+            shutil.rmtree(profile_dir, ignore_errors=True)
 
     def test_normalize_cookie_payload_accepts_wrapped_or_plain_cookie_lists(self) -> None:
         payload = {

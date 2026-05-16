@@ -176,7 +176,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-review-required",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help="Also export assets that are still marked for manual review.",
     )
     return parser.parse_args()

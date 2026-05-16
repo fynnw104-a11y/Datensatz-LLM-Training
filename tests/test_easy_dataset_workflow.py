@@ -207,6 +207,24 @@ class EasyWorkflowTests(unittest.TestCase):
 
         export_mock.assert_not_called()
 
+    def test_has_chatgpt_auth_cookie_detects_session_cookie_names(self) -> None:
+        self.assertTrue(
+            workflow.has_chatgpt_auth_cookie(
+                [
+                    ".chatgpt.com:cf_clearance",
+                    "chatgpt.com:__Secure-next-auth.session-token",
+                ]
+            )
+        )
+        self.assertFalse(
+            workflow.has_chatgpt_auth_cookie(
+                [
+                    ".chatgpt.com:cf_clearance",
+                    "chatgpt.com:__Host-next-auth.csrf-token",
+                ]
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

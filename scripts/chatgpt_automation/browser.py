@@ -109,6 +109,8 @@ def _build_common_options(options: Any, config: ChatGPTAutomationConfig, use_pro
     options.add_argument(f"--window-size={config.window_size}")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
+    options.add_argument("--disable-background-mode")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-popup-blocking")
     options.add_argument("--disable-notifications")
@@ -118,6 +120,7 @@ def _build_common_options(options: Any, config: ChatGPTAutomationConfig, use_pro
         options.add_argument(f"--user-agent={config.user_agent}")
     if use_profile and config.user_data_dir:
         options.add_argument(f"--user-data-dir={config.user_data_dir}")
+        options.add_argument("--profile-directory=Default")
     if config.keep_browser_open and hasattr(options, "add_experimental_option"):
         options.add_experimental_option("detach", True)
     if config.stealth:
@@ -198,8 +201,11 @@ def build_manual_login_browser_command(config: ChatGPTAutomationConfig, url: str
     command = [
         str(executable),
         f"--user-data-dir={config.user_data_dir.resolve()}",
+        "--profile-directory=Default",
         "--new-window",
         "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-mode",
     ]
     if config.window_size:
         command.append(f"--window-size={config.window_size}")
@@ -224,6 +230,11 @@ def build_driver_with_fallback(config: ChatGPTAutomationConfig) -> Any:
             return create_webdriver(config, use_profile=True)
         except (RuntimeError, WebDriverException) as exc:  # pragma: no cover - depends on local browser state
             errors.append(f"profile mode failed: {exc}")
+            raise RuntimeError(
+                "Could not start Selenium with the configured ChatGPT browser profile. "
+                "Close all browser windows that use this profile and rerun the enrichment; "
+                "the automation will not fall back to a clean logged-out profile.\n" + "\n".join(errors)
+            ) from exc
 
     try:
         return create_webdriver(config, use_profile=False)

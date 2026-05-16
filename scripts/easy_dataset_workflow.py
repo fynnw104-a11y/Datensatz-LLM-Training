@@ -5,6 +5,7 @@ import json
 import os
 import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -17,7 +18,13 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chatgpt_automation.browser import discover_browser_executable, normalize_cookie_payload, require_selenium, set_cookie_payload
+from chatgpt_automation.browser import (
+    discover_browser_executable,
+    launch_browser_for_manual_login,
+    normalize_cookie_payload,
+    require_selenium,
+    set_cookie_payload,
+)
 from chatgpt_automation.config import DEFAULT_CONFIG_PATH, load_config
 from export_multimodal_training_pairs import should_export_annotation
 from prepare_dataset import RAW_PDFS_DIR, detect_ocr_runtime, import_pymupdf
@@ -36,6 +43,14 @@ SAFE_CONFIG_OVERRIDES = {
     "user_data_dir": "../.runtime/chatgpt/browser_profile",
     "cookies_file": "../.runtime/chatgpt/cookies/ChatGPT.json",
 }
+CHATGPT_AUTH_COOKIE_MARKERS = (
+    "session-token",
+    "session_token",
+    "access-token",
+    "access_token",
+    "auth-token",
+    "auth_token",
+)
 
 
 @dataclass(frozen=True)
@@ -111,6 +126,88 @@ def build_cookie_from_args(args: argparse.Namespace) -> dict[str, object]:
     return cookie
 
 
+def chatgpt_cookie_db_path(config_path: str | Path | None = None) -> Path:
+    config = load_config(config_path)
+    if config.user_data_dir is None:
+        raise RuntimeError("In der ChatGPT-Konfig ist kein user_data_dir gesetzt.")
+    return config.user_data_dir / "Default" / "Cookies"
+
+
+def list_project_profile_chatgpt_cookie_names(config_path: str | Path | None = None) -> list[str]:
+    cookie_db = chatgpt_cookie_db_path(config_path)
+    if not cookie_db.exists():
+        return []
+
+    names: list[str] = []
+    try:
+        connection = sqlite3.connect(f"file:{cookie_db}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return []
+
+    try:
+        rows = connection.execute(
+            """
+            select host_key, name
+            from cookies
+            where host_key like '%chatgpt%' or host_key like '%openai%'
+            order by host_key, name
+            """
+        )
+        names = [f"{host}:{name}" for host, name in rows]
+    except sqlite3.Error:
+        return []
+    finally:
+        connection.close()
+
+    return names
+
+
+def has_chatgpt_auth_cookie(cookie_names: Iterable[str]) -> bool:
+    lowered = [name.lower() for name in cookie_names]
+    return any(marker in name for name in lowered for marker in CHATGPT_AUTH_COOKIE_MARKERS)
+
+
+def bootstrap_chatgpt_login(config_path: str | Path | None = None) -> None:
+    setup_chatgpt_config(force=False)
+    config = load_config(config_path)
+    if config.user_data_dir is None:
+        raise RuntimeError("In der ChatGPT-Konfig ist kein user_data_dir gesetzt.")
+
+    print_header("ChatGPT-Login vorbereiten")
+    print(f"Profilordner: {config.user_data_dir}")
+    print("Es wird ein normales Browserfenster geoeffnet. Logge dich dort komplett ein.")
+    print("Wichtig: Erst schliessen, wenn du das normale ChatGPT-Eingabefeld siehst.")
+
+    process = launch_browser_for_manual_login(config, url=config.login_url)
+    try:
+        process.wait(timeout=config.manual_login_timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Login-Browser wurde nach {int(config.manual_login_timeout_seconds)} Sekunden nicht geschlossen. "
+            "Bitte Fenster nach dem Login schliessen und den Befehl erneut starten."
+        ) from exc
+
+    cookie_names = list_project_profile_chatgpt_cookie_names(config_path)
+    if not cookie_names:
+        raise RuntimeError(
+            "Im Projektprofil wurden keine ChatGPT/OpenAI-Cookies gefunden. "
+            "Der Login wurde wahrscheinlich nicht in diesem Profil gespeichert."
+        )
+
+    print("\nGefundene ChatGPT/OpenAI-Cookies im Projektprofil:")
+    for name in cookie_names:
+        print(f"- {name}")
+
+    if not has_chatgpt_auth_cookie(cookie_names):
+        raise RuntimeError(
+            "Es wurden zwar ChatGPT-Cookies gefunden, aber kein erkennbares Session-Cookie. "
+            "Bleib beim Login bis zur normalen ChatGPT-Startseite mit Eingabefeld, "
+            "oder importiere einen Cookie-Export mit einem Session-Cookie ueber `import-cookies`."
+        )
+
+    print("\nSession-Cookie erkannt. Das Enrichment kann jetzt mit diesem Profil laufen.")
+
+
 def collect_enrichment_target_paths(skip_existing_llm: bool, limit: int | None) -> list[Path]:
     targets: list[Path] = []
     for annotation_path in sorted(ROOT.glob(MULTIMODAL_ASSET_GLOB)):
@@ -139,7 +236,7 @@ def count_missing_llm_enrichment(annotation_paths: Iterable[Path]) -> int:
 
 def count_exportable_llm_assets(
     min_quality: str = "medium",
-    allow_review_required: bool = False,
+    allow_review_required: bool = True,
 ) -> int:
     exportable = 0
     for annotation_path in sorted(ROOT.glob(MULTIMODAL_ASSET_GLOB)):
@@ -477,7 +574,7 @@ def run_auto_export_training_pairs(with_chatgpt: bool) -> dict[str, object]:
     manifest = run_export_training_pairs(
         min_quality="medium",
         require_llm=with_chatgpt,
-        allow_review_required=False,
+        allow_review_required=True,
     )
     if int(manifest.get("exported_pairs", 0) or 0) > 0:
         return manifest
@@ -765,6 +862,12 @@ def parse_args() -> argparse.Namespace:
     setup_parser = subparsers.add_parser("setup-chatgpt", help="ChatGPT-Konfig aus der Vorlage anlegen.")
     setup_parser.add_argument("--reset-config", action="store_true", help="Vorhandene ChatGPT-Konfig aus der Vorlage neu schreiben.")
 
+    bootstrap_login_parser = subparsers.add_parser(
+        "bootstrap-chatgpt-login",
+        help="ChatGPT-Login im Projektprofil oeffnen und Session-Cookies pruefen.",
+    )
+    bootstrap_login_parser.add_argument("--config", default=None, help="Optionaler Pfad zu ChatGPT/config.json.")
+
     set_cookie_parser = subparsers.add_parser("set-cookie", help="Ein einzelnes ChatGPT-Cookie in die Cookie-Datei schreiben.")
     set_cookie_parser.add_argument("--name", required=True, help="Cookie-Name.")
     set_cookie_parser.add_argument("--value", required=True, help="Cookie-Wert.")
@@ -887,6 +990,10 @@ def main() -> None:
 
     if args.command == "setup-chatgpt":
         setup_chatgpt_config(force=bool(args.reset_config))
+        return
+
+    if args.command == "bootstrap-chatgpt-login":
+        bootstrap_chatgpt_login(config_path=args.config)
         return
 
     if args.command == "set-cookie":
